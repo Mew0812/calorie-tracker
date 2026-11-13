@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.vercel/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Local configuration, credentials, and app data
+.env
+.env.*
+!.env.example
+.npmrc
+.netrc
+.credentials/
+.secrets/
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+mydiet-*.json
+
