@@ -40,16 +40,18 @@ function FoodEditor({food,save,close,fail}:{food:Food;save:(food:Food)=>void;clo
   const [inputText,setInputText]=useState(()=>
     Object.fromEntries(nutrients.map(key=>[key,food.name?String(food.input[key]):''])) as Record<Metric,string>
   )
-  const [weightText,setWeightText]=useState(()=>food.name?String(food.weight):'')
-  const weight=Number(weightText)
+  const hasWeight=Number.isFinite(food.weight)&&food.weight>0
+  const needsWeight=draft.mode==='100g'&&!hasWeight
   const input=Object.fromEntries(nutrients.map(key=>[key,Number(inputText[key])])) as Nutrition
-  const nutrition=mapping(key=>Number(inputText[key])*(draft.mode==='100g'?weight/100:1))
+  const nutrition=draft.mode===food.mode&&nutrients.every(key=>input[key]===food.input[key])
+    ?food.nutrition
+    :mapping(key=>input[key]*(draft.mode==='100g'?food.weight/100:1))
   return <Modal title={food.name?'食品を編集':'食品を登録'} close={close}><form onSubmit={e=>{
     e.preventDefault()
-    if(draft.name.trim()&&draft.unit.trim())save({...draft,name:draft.name.trim(),weight,input,nutrition})
+    if(!needsWeight&&draft.name.trim()&&draft.unit.trim())save({...draft,name:draft.name.trim(),input,nutrition})
   }}>
     <label>食品名<input required maxLength={80} value={draft.name} onChange={e=>set({...draft,name:e.target.value})}/></label>
-    <div className="form-grid"><label>単位<input required maxLength={20} value={draft.unit} onChange={e=>set({...draft,unit:e.target.value})}/></label><label>1単位の重量（g）<input type="number" inputMode="decimal" min={draft.mode==='100g'?0.001:0} max="1000000" step="any" required={draft.mode==='100g'} value={weightText} onChange={e=>setWeightText(e.target.value)}/></label></div>
+    <label>単位<input required maxLength={20} value={draft.unit} onChange={e=>set({...draft,unit:e.target.value})}/></label>
     <label>食品画像<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic,image/heif" onChange={e=>{
       const file=e.target.files?.[0]; if(!file)return
       if(!/^image\/(png|jpeg|webp|gif|avif|heic|heif)$/i.test(file.type)||file.size>5*1024*1024){fail(new Error('対応する5 MB以下の画像を選択してください。'));return}
@@ -58,11 +60,12 @@ function FoodEditor({food,save,close,fail}:{food:Food;save:(food:Food)=>void;clo
       reader.onerror=()=>{setReading(false);fail(new Error('画像を読み込めませんでした。'))};reader.readAsDataURL(file)
     }}/></label>
     {draft.image&&<div className="row"><img className="thumb" src={draft.image} alt="食品画像"/><button type="button" onClick={()=>set({...draft,image:''})}>画像を外す</button></div>}
-    <div className="segment"><button type="button" aria-pressed={draft.mode==='unit'} onClick={()=>set({...draft,mode:'unit'})}>1単位あたり</button><button type="button" aria-pressed={draft.mode==='100g'} onClick={()=>set({...draft,mode:'100g'})}>100gあたり</button></div>
+    <div className="segment"><button type="button" aria-pressed={draft.mode==='unit'} onClick={()=>set({...draft,mode:'unit'})}>1単位あたり</button><button type="button" aria-pressed={draft.mode==='100g'} disabled={!hasWeight} onClick={()=>set({...draft,mode:'100g'})}>100gあたり</button></div>
+    {!hasWeight&&<small>100gあたりの換算には保存済みの重量が必要です。1単位あたりの栄養成分を入力してください。</small>}
     <NutrientFields value={inputText} change={setInputText} parse={value=>value}/>
-    <div className="notice"><strong>1単位あたり{draft.unit.trim() && `（${draft.unit}）`}</strong><div>{nutrients.map(key=><span key={key}>{key==='kcal'?'':key.toUpperCase()+' '}{fmt(nutrition[key])} {units[key]}　</span>)}</div></div>
+    {!needsWeight&&<div className="notice"><strong>1単位あたり{draft.unit.trim() && `（${draft.unit}）`}</strong><div>{nutrients.map(key=><span key={key}>{key==='kcal'?'':key.toUpperCase()+' '}{fmt(nutrition[key])} {units[key]}　</span>)}</div></div>}
     <label className="row"><input type="checkbox" checked={draft.favorite} onChange={e=>set({...draft,favorite:e.target.checked})}/>お気に入り</label>
-    <button className="primary wide" disabled={reading}>保存する</button>
+    <button className="primary wide" disabled={reading||needsWeight}>保存する</button>
   </form></Modal>
 }
 function SetEditor({item,foods,save,remove,close}:{item:FoodSet;foods:Food[];save:(item:FoodSet)=>void;remove:()=>void;close:()=>void}) {
