@@ -12,7 +12,7 @@ const signed=(value:number)=>(value>0?'+':'')+fmt(value)
 const status=(day?:Day)=>day?.completed?'記録完了':day?'記録中':'未記録'
 const balance=(used:number,goal:number,unit:string)=>used>goal?'超過 '+fmt(used-goal)+' '+unit:'残り '+fmt(goal-used)+' '+unit
 const progress=(used:number,goal:number)=>goal>0?Math.min(used/goal,1):Number(used>0)
-const blankFood=():Food=>({id:newId(),name:'',unit:'個',weight:0,image:'',nutrition:zero,input:zero,mode:'unit',favorite:false,archived:false,order:0})
+const blankFood=():Food=>({id:newId(),name:'',unit:'',weight:0,image:'',nutrition:zero,input:zero,mode:'unit',favorite:false,archived:false,order:0})
 
 function PanelTitle({icon:Icon,title,action}:{icon:LucideIcon;title:string;action?:ReactNode}) {
   return <div className="section-title"><h2><Icon size={19}/>{title}</h2>{action}</div>
@@ -46,7 +46,7 @@ function FoodEditor({food,save,close,fail}:{food:Food;save:(food:Food)=>void;clo
   const nutrition=mapping(key=>Number(inputText[key])*(draft.mode==='100g'?weight/100:1))
   return <Modal title={food.name?'食品を編集':'食品を登録'} close={close}><form onSubmit={e=>{
     e.preventDefault()
-    if(draft.name.trim()&&draft.unit.trim())save({...draft,name:draft.name.trim(),unit:draft.unit.trim(),weight,input,nutrition})
+    if(draft.name.trim()&&draft.unit.trim())save({...draft,name:draft.name.trim(),weight,input,nutrition})
   }}>
     <label>食品名<input required maxLength={80} value={draft.name} onChange={e=>set({...draft,name:e.target.value})}/></label>
     <div className="form-grid"><label>単位<input required maxLength={20} value={draft.unit} onChange={e=>set({...draft,unit:e.target.value})}/></label><label>1単位の重量（g）<input type="number" inputMode="decimal" min={draft.mode==='100g'?0.001:0} max="1000000" step="any" required={draft.mode==='100g'} value={weightText} onChange={e=>setWeightText(e.target.value)}/></label></div>
@@ -60,7 +60,7 @@ function FoodEditor({food,save,close,fail}:{food:Food;save:(food:Food)=>void;clo
     {draft.image&&<div className="row"><img className="thumb" src={draft.image} alt="食品画像"/><button type="button" onClick={()=>set({...draft,image:''})}>画像を外す</button></div>}
     <div className="segment"><button type="button" aria-pressed={draft.mode==='unit'} onClick={()=>set({...draft,mode:'unit'})}>1単位あたり</button><button type="button" aria-pressed={draft.mode==='100g'} onClick={()=>set({...draft,mode:'100g'})}>100gあたり</button></div>
     <NutrientFields value={inputText} change={setInputText} parse={value=>value}/>
-    <div className="notice"><strong>1{draft.unit}あたり</strong><div>{nutrients.map(key=><span key={key}>{key==='kcal'?'':key.toUpperCase()+' '}{fmt(nutrition[key])} {units[key]}　</span>)}</div></div>
+    <div className="notice"><strong>1単位あたり{draft.unit.trim() && `（${draft.unit}）`}</strong><div>{nutrients.map(key=><span key={key}>{key==='kcal'?'':key.toUpperCase()+' '}{fmt(nutrition[key])} {units[key]}　</span>)}</div></div>
     <label className="row"><input type="checkbox" checked={draft.favorite} onChange={e=>set({...draft,favorite:e.target.checked})}/>お気に入り</label>
     <button className="primary wide" disabled={reading}>保存する</button>
   </form></Modal>
@@ -162,7 +162,7 @@ function App() {
       <section className="block"><PanelTitle icon={Utensils} title="食品一覧"/>
       <div className="food-grid">{active.map(food=>{
         const count=entries.find(entry=>entry.foodId===food.id)?.count??0
-        return <article className="card food" key={food.id}><button className="food-info" onClick={()=>setFoodEdit(food)}>{food.image?<img className="thumb" src={food.image} alt=""/>:<span className="thumb"><Utensils size={23}/></span>}<span><strong>{food.name} {food.favorite&&<Star size={13} className="star" fill="currentColor"/>}</strong><small>{fmt(food.nutrition.kcal)} kcal / 1{food.unit}</small></span></button><div className="stepper"><button aria-label={food.name+'を1減らす'} disabled={!count||day?.completed} onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:-1}]))}><Minus size={19}/></button><output aria-label={food.name+'の数量'}>{count}</output><button aria-label={food.name+'を1増やす'} disabled={day?.completed} onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:1}]))}><Plus size={19}/></button></div></article>
+        return <article className="card food" key={food.id}><button className="food-info" onClick={()=>setFoodEdit(food)}>{food.image?<img className="thumb" src={food.image} alt=""/>:<span className="thumb"><Utensils size={23}/></span>}<span><strong>{food.name} {food.favorite&&<Star size={13} className="star" fill="currentColor"/>}</strong><small>{fmt(food.nutrition.kcal)} kcal / {food.unit}</small></span></button><div className="stepper"><button aria-label={food.name+'を1減らす'} disabled={!count||day?.completed} onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:-1}]))}><Minus size={19}/></button><output aria-label={food.name+'の数量'}>{count}</output><button aria-label={food.name+'を1増やす'} disabled={day?.completed} onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:1}]))}><Plus size={19}/></button></div></article>
       })}</div>
       {!active.length&&<div className="empty card"><span className="tile-icon"><Utensils size={22}/></span><h3>よく食べる食品を登録</h3><p>下部メニューの「食品」から登録できます。</p></div>}
       {entries.filter(entry=>!active.some(food=>food.id===entry.foodId)).map(entry=><div className="card archived-entry" key={entry.foodId}><span>{entry.name}（アーカイブ済み） × {entry.count}</span><button disabled={day?.completed} onClick={()=>run(()=>changeQuantities(date,[{id:entry.foodId,count:-1}]))} aria-label={entry.name+'を1減らす'}><Minus size={18}/></button></div>)}
@@ -190,7 +190,7 @@ function App() {
       <div className="segment"><button aria-pressed={foodView==='active'} onClick={()=>setFoodView('active')}>食品</button><button aria-pressed={foodView==='sets'} onClick={()=>setFoodView('sets')}>セット</button><button aria-pressed={foodView==='archive'} onClick={()=>setFoodView('archive')}>アーカイブ</button></div>
       {foodView==='sets'?<section className="card detail">{sets.length?sets.map(item=><div className="detail-row" key={item.id}><span>{item.name} · {item.items.length}種類</span><button onClick={()=>setSetEdit(item)}>編集</button></div>):<p className="muted">食品セットはありません。</p>}</section>:<section className="card detail">{(foodView==='archive'?foods.filter(food=>food.archived):active).map(food=>{
         const group=active.filter(x=>x.favorite===food.favorite);const index=group.findIndex(x=>x.id===food.id)
-        return <div className="manage-row" key={food.id}><button className="link" onClick={()=>setFoodEdit(food)}>{food.name}</button><div className="row">{food.archived?<button onClick={()=>run(()=>db.foods.update(food.id,{archived:false}))}>復活</button>:<>
+        return <div className="manage-row" key={food.id}><div><button className="link" onClick={()=>setFoodEdit(food)}>{food.name}</button><small className={food.nutrition.kcal===0?'over':undefined}>{fmt(food.nutrition.kcal)} kcal</small></div><div className="row">{food.archived?<button onClick={()=>run(()=>db.foods.update(food.id,{archived:false}))}>復活</button>:<>
           <button className="icon" aria-label={food.name+'のお気に入り'} aria-pressed={food.favorite} onClick={()=>run(()=>db.foods.update(food.id,{favorite:!food.favorite}))}><Star size={18} fill={food.favorite?'currentColor':'none'}/></button>
           <button className="icon" aria-label={food.name+'を上へ'} disabled={index===0} onClick={()=>run(()=>move(food,-1))}><ArrowUp size={18}/></button><button className="icon" aria-label={food.name+'を下へ'} disabled={index===group.length-1} onClick={()=>run(()=>move(food,1))}><ArrowDown size={18}/></button><button onClick={()=>run(()=>db.foods.update(food.id,{archived:true}))}>保管</button></>}</div></div>
       })}{!(foodView==='archive'?foods.some(food=>food.archived):active.length)&&<p className="muted">表示する食品がありません。</p>}</section>}
