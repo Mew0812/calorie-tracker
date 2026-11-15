@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto'
-import {beforeEach, describe, expect, it} from 'vitest'
+import {beforeEach, describe, expect, it, vi} from 'vitest'
 import {average, backupReminderDue, changeQuantities, db, deleteFood, goalAt, initialGoals, localDate, mapping, periodDates, restore, saveGoals, shift, snapshot, sortFoods, summarize, totals, updateDay, type Food} from './model'
 
 const date='2024-02-29'
@@ -73,7 +73,7 @@ describe('保存',()=>{
     await db.foods.add({...egg,id:'favorite',order:9,favorite:true})
     await db.foods.add({...egg,id:'top',order:2,favorite:true})
     const backup=await snapshot()
-    await expect(restore({...backup,version:2})).rejects.toThrow()
+    await expect(restore({...backup,version:99})).rejects.toThrow()
     expect(await db.foods.count()).toBe(3)
     await db.foods.update('egg',{archived:false,image:''})
     await restore(JSON.parse(JSON.stringify(backup)))
@@ -114,4 +114,41 @@ it('月末だけ案内する',()=>{
   expect(backupReminderDue('2024-02-28')).toBe(false)
   expect(backupReminderDue('2024-02-29')).toBe(true)
   expect(backupReminderDue('2026-12-31')).toBe(true)
+})
+
+it('新形式のレポート履歴と旧形式を復元し、不正な履歴を拒否する',async()=>{
+  const history={id:'nutrition' as const,exportedAt:'2026-11-15T12:00:00.000Z',through:'2026-11-15'}
+  await db.reportHistory.put(history)
+  const backup=await snapshot()
+  await expect(restore({...backup,reportHistory:{...history,through:'2026-02-30'}})).rejects.toThrow()
+  expect(await snapshot()).toEqual(backup)
+  await db.reportHistory.clear()
+  await restore(backup)
+  expect(await db.reportHistory.get('nutrition')).toEqual(history)
+  await restore({...backup,version:1,reportHistory:undefined})
+  expect(await db.reportHistory.get('nutrition')).toEqual(history)
+  expect(await db.foods.toArray()).toEqual(backup.foods)
+})
+
+it('復元途中のエラーで既存データをロールバックする',async()=>{
+  await add(1)
+  const before=await snapshot()
+  const fail=vi.spyOn(db.entries,'bulkAdd').mockRejectedValueOnce(new Error('write failed'))
+  try {
+    await expect(restore(before)).rejects.toThrow('write failed')
+    expect(await snapshot()).toEqual(before)
+  } finally {fail.mockRestore()}
+})
+
+it('マスター変更後も同じ日のセット追加と取り消しに元のスナップショットを使う',async()=>{
+  await add(2)
+  const original=await db.entries.get([date,egg.id])
+  await db.foods.update(egg.id,{name:'新しい名前',unit:'パック',nutrition:{...egg.nutrition,kcal:100}})
+  const undo=await changeQuantities(date,[{id:egg.id,count:3}],'set')
+  expect(await db.entries.get([date,egg.id])).toEqual({...original,count:5})
+  await changeQuantities(date,undo.items.map(item=>({...item,count:-item.count})),'undo')
+  expect(await db.entries.get([date,egg.id])).toEqual(original)
+  await deleteFood(egg.id)
+  await expect(add(1)).rejects.toThrow()
+  expect(await db.entries.get([date,egg.id])).toEqual(original)
 })

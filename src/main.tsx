@@ -1,88 +1,18 @@
-import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { liveQuery } from 'dexie'
-import { Activity, ArrowDown, ArrowUp, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X, type LucideIcon } from 'lucide-react'
-import { average, backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, labels, localDate, mapping, newId, nutrients, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, summarize, totals, units, updateDay, validateBackup, zero, type Day, type Food, type FoodSet, type Goals, type Metric, type Nutrition, type Settings, type Undo } from './model'
+import { Activity, ArrowDown, ArrowUp, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X } from 'lucide-react'
+import { backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, localDate, newId, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, totals, updateDay, validateBackup, zero, type Food, type FoodSet, type Metric, type Settings, type Undo } from './model'
 import './style.css'
-import ReportPanel from './ReportPanel'
+import { nutritionDraft, parseNutrition } from './nutritionInput'
+import AnalysisScreen from './AnalysisScreen'
+import { dayLabel, signed, status } from './display'
+import { ErrorNotice, Modal, NutrientFields, NutritionCard, PanelTitle } from './ui'
+import { FoodEditor, SetEditor } from './foodEditors'
 
 const tabs = [['記録',ClipboardList],['分析',ChartNoAxesColumnIncreasing],['カレンダー',CalendarDays],['食品',Utensils],['設定',Gear]] as const
 type Tab=typeof tabs[number][0]
-const dayLabel=(date:string)=>dateObject(date).toLocaleDateString('ja-JP',{month:'long',day:'numeric',weekday:'short'})
-const signed=(value:number)=>(value>0?'+':'')+fmt(value)
-const status=(day?:Day)=>day?.completed?'記録完了':day?'記録中':'未記録'
-const balance=(used:number,goal:number,unit:string)=>used>goal?'超過 '+fmt(used-goal)+' '+unit:'残り '+fmt(goal-used)+' '+unit
-const progress=(used:number,goal:number)=>goal>0?Math.min(used/goal,1):Number(used>0)
 const blankFood=():Food=>({id:newId(),name:'',unit:'',weight:0,image:'',nutrition:zero,input:zero,mode:'unit',favorite:false,archived:false,order:0})
-
-function PanelTitle({icon:Icon,title,action}:{icon:LucideIcon;title:string;action?:ReactNode}) {
-  return <div className="section-title"><h2><Icon size={19}/>{title}</h2>{action}</div>
-}
-function NutritionCard({used,goal}:{used:Nutrition;goal:Nutrition}) {
-  return <section className="nutrition card" aria-label="栄養サマリー">
-    <div className="energy"><span className="caption">摂取カロリー</span><div className="ring" style={{background:'conic-gradient(var(--blue) '+(progress(used.kcal,goal.kcal)*100)+'%, var(--track) 0)'}}>
-      <div><strong>{fmt(used.kcal)}</strong><small> / {fmt(goal.kcal)} kcal</small></div>
-    </div><span className={'balance '+(used.kcal>goal.kcal?'over':'')}>{balance(used.kcal,goal.kcal,'kcal')}</span></div>
-    <div className="macros">{(['p','f','c'] as const).map(key=><div className={'macro '+key} key={key}><div className="macro-head"><strong><b>{key.toUpperCase()}</b> {labels[key]}</strong><span>{fmt(used[key])} / {fmt(goal[key])} g</span></div>
-      <div className="track"><i style={{width:progress(used[key],goal[key])*100+'%'}}/></div><small className={used[key]>goal[key]?'over':''}>{balance(used[key],goal[key],'g')}</small></div>)}</div>
-  </section>
-}
-const ErrorNotice=createContext('')
-function Modal({title,children,close}:{title:string;children:ReactNode;close:()=>void}) {
-  const error=useContext(ErrorNotice)
-  const [node,setNode]=useState<HTMLDialogElement|null>(null)
-  useEffect(()=>{if(node&&!node.open)node.showModal()},[node])
-  return <dialog ref={setNode} onCancel={event=>{event.preventDefault();close()}}><div className="dialog-title"><h2>{title}</h2><button type="button" className="icon" onClick={close} aria-label="閉じる"><X/></button></div>{children}{error&&<p className="danger" role="alert">{error}</p>}</dialog>
-}
-function NutrientFields<T extends string | number>({value,change,parse}:{value:Record<Metric,T>;change:(value:Record<Metric,T>)=>void;parse:(value:string)=>T}) {
-  return <div className="form-grid">{nutrients.map(key=><label key={key}>{labels[key]}（{units[key]}）<input type="number" min="0" max="1000000" step="any" required inputMode="decimal" value={value[key]} onChange={e=>change({...value,[key]:parse(e.target.value)})}/></label>)}</div>
-}
-function FoodEditor({food,save,close,fail}:{food:Food;save:(food:Food)=>void;close:()=>void;fail:(error:unknown)=>void}) {
-  const [draft,set]=useState(food)
-  const [reading,setReading]=useState(false)
-  const [inputText,setInputText]=useState(()=>
-    Object.fromEntries(nutrients.map(key=>[key,food.name?String(food.input[key]):''])) as Record<Metric,string>
-  )
-  const hasWeight=Number.isFinite(food.weight)&&food.weight>0
-  const needsWeight=draft.mode==='100g'&&!hasWeight
-  const input=Object.fromEntries(nutrients.map(key=>[key,Number(inputText[key])])) as Nutrition
-  const nutrition=draft.mode===food.mode&&nutrients.every(key=>input[key]===food.input[key])
-    ?food.nutrition
-    :mapping(key=>input[key]*(draft.mode==='100g'?food.weight/100:1))
-  return <Modal title={food.name?'食品を編集':'食品を登録'} close={close}><form onSubmit={e=>{
-    e.preventDefault()
-    if(!needsWeight&&draft.name.trim()&&draft.unit.trim())save({...draft,name:draft.name.trim(),input,nutrition})
-  }}>
-    <label>食品名<input required maxLength={80} value={draft.name} onChange={e=>set({...draft,name:e.target.value})}/></label>
-    <label>単位<input required maxLength={20} value={draft.unit} onChange={e=>set({...draft,unit:e.target.value})}/></label>
-    <label>食品画像<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/heic,image/heif" onChange={e=>{
-      const file=e.target.files?.[0]; if(!file)return
-      if(!/^image\/(png|jpeg|webp|gif|avif|heic|heif)$/i.test(file.type)||file.size>5*1024*1024){fail(new Error('対応する5 MB以下の画像を選択してください。'));return}
-      const reader=new FileReader();setReading(true)
-      reader.onload=()=>{set(current=>({...current,image:String(reader.result)}));setReading(false)}
-      reader.onerror=()=>{setReading(false);fail(new Error('画像を読み込めませんでした。'))};reader.readAsDataURL(file)
-    }}/></label>
-    {draft.image&&<div className="row"><img className="thumb" src={draft.image} alt="食品画像"/><button type="button" onClick={()=>set({...draft,image:''})}>画像を外す</button></div>}
-    <div className="segment"><button type="button" aria-pressed={draft.mode==='unit'} onClick={()=>set({...draft,mode:'unit'})}>1単位あたり</button><button type="button" aria-pressed={draft.mode==='100g'} disabled={!hasWeight} onClick={()=>set({...draft,mode:'100g'})}>100gあたり</button></div>
-    {!hasWeight&&<small>100gあたりの換算には保存済みの重量が必要です。1単位あたりの栄養成分を入力してください。</small>}
-    <NutrientFields value={inputText} change={setInputText} parse={value=>value}/>
-    {!needsWeight&&<div className="notice"><strong>1単位あたり{draft.unit.trim() && `（${draft.unit}）`}</strong><div>{nutrients.map(key=><span key={key}>{key==='kcal'?'':key.toUpperCase()+' '}{fmt(nutrition[key])} {units[key]}　</span>)}</div></div>}
-    <label className="row"><input type="checkbox" checked={draft.favorite} onChange={e=>set({...draft,favorite:e.target.checked})}/>お気に入り</label>
-    <button className="primary wide" disabled={reading||needsWeight}>保存する</button>
-  </form></Modal>
-}
-function SetEditor({item,foods,save,remove,close}:{item:FoodSet;foods:Food[];save:(item:FoodSet)=>void;remove:()=>void;close:()=>void}) {
-  const [draft,set]=useState(item)
-  const [selected,select]=useState('')
-  const available=foods.filter(food=>!food.archived&&!draft.items.some(row=>row.id===food.id))
-  return <Modal title={item.name?'食品セットを編集':'食品セットを作成'} close={close}><form onSubmit={e=>{e.preventDefault();if(draft.name.trim()&&draft.items.length)save({...draft,name:draft.name.trim()})}}>
-    <label>セット名<input required maxLength={80} value={draft.name} onChange={e=>set({...draft,name:e.target.value})}/></label>
-    {draft.items.map(row=><div className="set-row" key={row.id}><span>{foods.find(food=>food.id===row.id)?.name}{foods.find(food=>food.id===row.id)?.archived?'（アーカイブ済み）':''}</span><input aria-label="数量" type="number" inputMode="numeric" required min="1" max="9999" value={row.count} onChange={e=>set({...draft,items:draft.items.map(x=>x.id===row.id?{...x,count:Number(e.target.value)}:x)})}/><button type="button" aria-label="食品を外す" onClick={()=>set({...draft,items:draft.items.filter(x=>x.id!==row.id)})}><X size={17}/></button></div>)}
-    <div className="row"><select aria-label="追加する食品" value={selected} onChange={e=>select(e.target.value)}><option value="">食品を選ぶ</option>{available.map(food=><option key={food.id} value={food.id}>{food.name}</option>)}</select><button type="button" disabled={!selected} onClick={()=>{set({...draft,items:[...draft.items,{id:selected,count:1}]});select('')}}>追加</button></div>
-    <button className="primary wide" disabled={!draft.items.length}>保存する</button>
-    {item.name&&<button className="wide danger" type="button" onClick={remove}>セットを削除</button>}
-  </form></Modal>
-}
 
 function App() {
   const [data,setData]=useState<Awaited<ReturnType<typeof snapshot>>>()
@@ -101,7 +31,7 @@ function App() {
   const [foodDelete,setFoodDelete]=useState<Food>()
   const [note,setNote]=useState('')
   const [pendingBackup,setPendingBackup]=useState<ReturnType<typeof validateBackup>>()
-  const [goals,setGoals]=useState(initialGoals)
+  const [goals,setGoals]=useState(()=>({training:nutritionDraft(initialGoals.training),rest:nutritionDraft(initialGoals.rest)}))
   const [applicable,setApplicable]=useState(initialGoals)
   const [settingsView,setSettingsView]=useState<'main'|'goals'|'backup'>('main')
   const [busy,setBusy]=useState(false)
@@ -133,14 +63,6 @@ function App() {
   const goal=(day?.goals??applicable)[day?.kind??'rest']
   const used=totals(entries)
   const sets=data?.sets??[]
-  const dates=periodDates(period,monthly)
-  const analyzed=summarize(data?.days??[],data?.entries??[],dates)
-  const completed=analyzed.filter(row=>row.completed)
-  const week=summarize(data?.days??[],data?.entries??[],periodDates(period,false)).filter(row=>row.completed)
-  const weekUsed=week.reduce((sum,row)=>sum+row.total.kcal,0)
-  const weekGoal=week.reduce((sum,row)=>sum+row.goals[row.kind].kcal,0)
-  const means=average(analyzed)
-  const max=Math.max(1,...analyzed.map(row=>row.total[metric]))
   const calendar=periodDates(month,true)
   async function move(food:Food,offset:number) {
     await db.transaction('rw',db.foods,async()=>{
@@ -188,17 +110,7 @@ function App() {
       <div className="calendar-grid">{['月','火','水','木','金','土','日'].map(value=><span key={value}>{value}</span>)}{Array.from({length:(dateObject(month).getDay()+6)%7},(_,i)=><span key={'blank'+i}/>)}{calendar.map(value=>{const record=data?.days.find(x=>x.date===value);return <button key={value} aria-pressed={date===value} aria-label={dayLabel(value)+' '+status(record)} onClick={()=>setDate(value)}>{Number(value.slice(-2))}<i>{record?.completed?<Check size={13}/>:record?'●':''}</i></button>})}</div></section>
       <div className="section-title"><h2>{dayLabel(date)}</h2><button className="link" onClick={()=>navigate('記録')}>記録を開く <ChevronRight size={16}/></button></div>{detail}
     </>}
-    {tab==='分析'&&<>
-      <h1>栄養分析</h1>
-      <ReportPanel today={today} data={data}/>
-      <div className="toolbar"><div className="segment"><button aria-pressed={!monthly} onClick={()=>setMonthly(false)}>週間</button><button aria-pressed={monthly} onClick={()=>setMonthly(true)}>月間</button></div><input aria-label="分析の基準日" type="date" value={period} onChange={e=>{if(e.target.value)setPeriod(e.target.value)}}/></div>
-      <section className="card detail"><PanelTitle icon={ChartNoAxesColumnIncreasing} title={labels[metric]+'の推移'}/><div className="segment metrics">{nutrients.map(key=><button key={key} aria-pressed={key===metric} onClick={()=>setMetric(key)}>{labels[key]}</button>)}</div>
-      <p className="muted">{dates[0]} 〜 {dates.at(-1)} · 斜線は記録中</p>
-      <div className="chart">{dates.map(value=>{const row=analyzed.find(x=>x.date===value);return <div className="column" key={value}><div className="bar-space">{row&&<div tabIndex={0} className={'bar '+(!row.completed?'draft':'')} aria-label={dayLabel(value)+' '+fmt(row.total[metric])+' '+units[metric]} title={dayLabel(value)+' '+fmt(row.total[metric])+' '+units[metric]} style={{height:Math.max(2,row.total[metric]/max*100)+'%'}}/>}</div><small>{value.slice(-2)}</small></div>})}</div>
-      </section>
-      <section className="card detail"><h2>{monthly?'月間':'週間'}平均</h2><p className="muted">記録完了 {completed.length} 日が対象</p><div className="form-grid">{nutrients.map(key=><div key={key}>{labels[key]} <strong>{means?fmt(means[key])+' '+units[key]:'—'}</strong></div>)}</div></section>
-      <section className="card detail"><h2>目標との差</h2><p className="muted">週間合計は記録完了 {week.length} 日が対象です。差は摂取カロリーと設定目標の比較です。</p><div className="detail-row"><span>週間摂取合計 / 週間目標合計</span><strong>{week.length?fmt(weekUsed)+' / '+fmt(weekGoal)+' kcal':'—'}</strong></div><div className="detail-row"><span>週間の差</span><strong>{week.length?signed(weekUsed-weekGoal)+' kcal':'—'}</strong></div>{analyzed.map(row=><div className="detail-row" key={row.date}><span>{dayLabel(row.date)} · {status(row)}</span><strong>{signed(row.total.kcal-row.goals[row.kind].kcal)} kcal</strong></div>)}</section>
-    </>}
+    {tab==='分析'&&<AnalysisScreen {...{today,data,period,setPeriod,monthly,setMonthly,metric,setMetric}}/>}
     {tab==='食品'&&<>
       <div className="section-title"><h1>食品管理</h1>{foodView!=='archive'&&<button className="primary" onClick={()=>foodView==='sets'?setSetEdit({id:newId(),name:'',items:[]}):setFoodEdit(blankFood())}><Plus size={18}/>新規作成</button>}</div>
       <div className="segment"><button aria-pressed={foodView==='active'} onClick={()=>setFoodView('active')}>食品</button><button aria-pressed={foodView==='sets'} onClick={()=>setFoodView('sets')}>セット</button><button aria-pressed={foodView==='archive'} onClick={()=>setFoodView('archive')}>アーカイブ</button></div>
@@ -212,8 +124,8 @@ function App() {
     {tab==='設定'&&<>
       <h1>{settingsView==='goals'?'目標設定':settingsView==='backup'?'バックアップ・復元':'設定'}</h1>
       {settingsView!=='main'&&<button className="link" onClick={()=>setSettingsView('main')}><ChevronLeft size={17}/>設定に戻る</button>}
-      {settingsView==='main'&&<section className="card detail"><PanelTitle icon={Gear} title="アプリ設定"/><label>外観<select value={data?.settings?.theme??'system'} onChange={e=>{const theme=e.target.value as Settings['theme'];run(()=>db.settings.put({id:'app',theme}))}}><option value="system">端末の設定に合わせる</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label><div className="detail-row"><button className="link" onClick={()=>run(async()=>{setGoals(await goalAt(today));setSettingsView('goals')})}>筋トレ日・休養日の目標 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>setSettingsView('backup')}>バックアップ・復元 <ChevronRight size={17}/></button></div></section>}
-      {settingsView==='goals'&&<form onSubmit={(e:FormEvent)=>{e.preventDefault();exclusive(async()=>{await saveGoals(goals)})}}>{(['training','rest'] as const).map(kind=><section className="card detail" key={kind}><h2>{kind==='training'?'筋トレ日':'休養日'}</h2><NutrientFields value={goals[kind]} parse={Number} change={value=>setGoals({...goals,[kind]:value})}/></section>)}<button className="primary" disabled={busy}>目標を保存</button></form>}
+      {settingsView==='main'&&<section className="card detail"><PanelTitle icon={Gear} title="アプリ設定"/><label>外観<select value={data?.settings?.theme??'system'} onChange={e=>{const theme=e.target.value as Settings['theme'];run(()=>db.settings.put({id:'app',theme}))}}><option value="system">端末の設定に合わせる</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label><div className="detail-row"><button className="link" onClick={()=>run(async()=>{const saved=await goalAt(today);setGoals({training:nutritionDraft(saved.training),rest:nutritionDraft(saved.rest)});setSettingsView('goals')})}>筋トレ日・休養日の目標 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>setSettingsView('backup')}>バックアップ・復元 <ChevronRight size={17}/></button></div></section>}
+      {settingsView==='goals'&&<form onSubmit={(e:FormEvent)=>{e.preventDefault();const training=parseNutrition(goals.training);const rest=parseNutrition(goals.rest);if(training&&rest)exclusive(()=>saveGoals({training,rest}))}}>{(['training','rest'] as const).map(kind=><section className="card detail" key={kind}><h2>{kind==='training'?'筋トレ日':'休養日'}</h2><NutrientFields value={goals[kind]} change={value=>setGoals({...goals,[kind]:value})}/></section>)}<button className="primary" disabled={busy}>目標を保存</button></form>}
       {settingsView==='backup'&&<section className="card detail">
         <button className="primary" disabled={!data} onClick={()=>run(async()=>{
           if(!data)return
@@ -255,6 +167,12 @@ function App() {
 }
 createRoot(document.getElementById('root')!).render(<App/>)
 if(import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load',()=>{void navigator.serviceWorker.register(import.meta.env.BASE_URL+'sw.js').catch(console.error)})
+  window.addEventListener('load',()=>{
+    void navigator.serviceWorker.register(import.meta.env.BASE_URL+'sw.js',{updateViaCache:'none'}).then(registration=>{
+      document.addEventListener('visibilitychange',()=>{
+        if(document.visibilityState==='visible')void registration.update().catch(()=>{})
+      })
+    }).catch(console.error)
+  })
 }
 

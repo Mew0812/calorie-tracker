@@ -1,23 +1,27 @@
 import { db, dateObject, labels, localDate, mapping, nutrients, shift, totals, units, type Day, type Entry, type Nutrition } from './model'
 
 export type ReportMode = 'recent'|'since'
-export type ReportExport = {mode:ReportMode; through:string; exportedAt:string}
+export type ReportExport = {mode:ReportMode; start:string; through:string; exportedAt:string}
 
 export async function saveReportHistory(record:ReportExport) {
   await db.transaction('rw',db.reportHistory,async()=>{
     const previous=await db.reportHistory.get('nutrition')
-    const through=record.mode==='since'&&(!previous?.through||record.through>previous.through)
-      ?record.through:previous?.through
+    const advance=record.mode==='since'&&(!previous?.through||record.through>previous.through)
+    const sameDay=record.mode==='since'&&record.through===previous?.through
+    const latest=!previous||record.exportedAt>=previous.exportedAt
     await db.reportHistory.put({
       id:'nutrition',
-      exportedAt:previous&&previous.exportedAt>record.exportedAt?previous.exportedAt:record.exportedAt,
-      through
+      exportedAt:latest?record.exportedAt:previous.exportedAt,
+      lastPeriod:latest?{mode:record.mode,start:record.start,end:record.through}:previous.lastPeriod,
+      through:advance?record.through:previous?.through,
+      sinceStart:advance?record.start:sameDay&&previous?.sinceStart===undefined?record.start:previous?.sinceStart
     })
   })
 }
 
-export function reportDates(today:string, mode:ReportMode, through?:string) {
-  const start=mode==='recent'||!through ? shift(today,-6) : through>=today ? today : shift(through,1)
+export function reportDates(today:string, mode:ReportMode, through?:string, sinceStart?:string) {
+  const start=mode==='recent'||!through ? shift(today,-6) :
+    through===today ? sinceStart??today : through>today ? today : shift(through,1)
   const dates:string[]=[]
   for(let date=start;date<=today;date=shift(date,1)) dates.push(date)
   return dates

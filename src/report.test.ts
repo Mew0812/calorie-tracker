@@ -11,15 +11,16 @@ describe('AI栄養分析レポート',()=>{
     expect(reportDates('2026-11-15','since')).toEqual(reportDates('2026-11-15','recent'))
     expect(reportDates('2026-11-15','since','2026-11-13')).toEqual(['2026-11-14','2026-11-15'])
     expect(reportDates('2026-11-15','since','2026-11-15')).toEqual(['2026-11-15'])
+    expect(reportDates('2026-11-15','since','2026-11-15','2026-11-13')).toEqual(['2026-11-13','2026-11-14','2026-11-15'])
   })
 
   it('正常出力分の履歴が再接続後も残り、直近7日の出力は基準日を変えない',async()=>{
-    await saveReportHistory({mode:'since',through:'2026-11-13',exportedAt:'2026-11-13T02:00:00Z'})
-    await saveReportHistory({mode:'recent',through:'2026-11-15',exportedAt:'2026-11-15T02:00:00Z'})
+    await saveReportHistory({mode:'since',start:'2026-11-07',through:'2026-11-13',exportedAt:'2026-11-13T02:00:00Z'})
+    await saveReportHistory({mode:'recent',start:'2026-11-09',through:'2026-11-15',exportedAt:'2026-11-15T02:00:00Z'})
     db.close()
     await db.open()
     expect(await db.reportHistory.get('nutrition')).toMatchObject({
-      through:'2026-11-13',exportedAt:'2026-11-15T02:00:00Z'
+      through:'2026-11-13',sinceStart:'2026-11-07',exportedAt:'2026-11-15T02:00:00Z',lastPeriod:{mode:'recent',start:'2026-11-09',end:'2026-11-15'}
     })
   })
 

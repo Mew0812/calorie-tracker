@@ -11,7 +11,13 @@ export type Entry = {date:string; foodId:string; count:number; name:string; unit
 export type Day = {date:string; kind:Kind; goals:Goals; completed:boolean}
 export type Revision = {id:string; date:string; goals:Goals}
 export type Settings = {id:'app'; theme:'system'|'light'|'dark'}
-export type ReportHistory = {id:'nutrition'; exportedAt:string; through?:string}
+export type ReportHistory = {
+  id:'nutrition'
+  exportedAt:string
+  through?:string
+  sinceStart?:string
+  lastPeriod?:{mode:'recent'|'since'; start:string; end:string}
+}
 export const zero = {kcal:0,p:0,f:0,c:0}
 export const initialGoals: Goals = {training:{kcal:2200,p:140,f:60,c:275},rest:{kcal:1900,p:130,f:55,c:220}}
 export const labels = {kcal:'カロリー',p:'タンパク質',f:'脂質',c:'炭水化物'}
@@ -91,18 +97,17 @@ export async function changeQuantities(date:string, changes:FoodSet['items'], mo
     const items:Undo['items']=[]
     for(const {id,count} of changes) {
       const previous=await db.entries.get([date,id])
-      if(mode==='set') {
-        const food=await db.foods.get(id)
-        if(!food || food.archived || food.deleted) throw new Error('セットに利用できない食品が含まれています。')
-      }
       const next=Math.max(0,(previous?.count??0)+count)
       if(!Number.isSafeInteger(next)) throw new Error('数量の上限を超えています。')
+      const food=mode==='set'||next>(previous?.count??0) ? await db.foods.get(id) : undefined
+      if((mode==='set'||next>(previous?.count??0))&&(!food||food.archived||food.deleted)) {
+        throw new Error('利用できない食品が含まれています。')
+      }
       if(next===(previous?.count??0)) continue
       if(!next) await db.entries.delete([date,id])
+      // All units in an existing daily line use the original food snapshot.
       else if(previous) await db.entries.put({...previous,count:next})
-      else {
-        const food=await db.foods.get(id)
-        if(!food || food.archived || food.deleted) throw new Error('セットに利用できない食品が含まれています。')
+      else if(food) {
         await db.entries.put({date,foodId:id,count:next,name:food.name,unit:food.unit,nutrition:food.nutrition})
       }
       items.push({id,count:next-(previous?.count??0)})
@@ -123,8 +128,9 @@ export const average = (rows:ReturnType<typeof summarize>) => {
 }
 export async function snapshot() {
   return db.transaction('r',db.tables,async()=>({
-    version:1, foods:await db.foods.toArray(),sets:await db.sets.toArray(),days:await db.days.toArray(),
-    entries:await db.entries.toArray(),goals:await db.goals.toArray(),settings:await db.settings.get('app')
+    version:2, foods:await db.foods.toArray(),sets:await db.sets.toArray(),days:await db.days.toArray(),
+    entries:await db.entries.toArray(),goals:await db.goals.toArray(),settings:await db.settings.get('app'),
+    reportHistory:await db.reportHistory.get('nutrition')
   }))
 }
 type Backup = Awaited<ReturnType<typeof snapshot>>
@@ -142,15 +148,26 @@ const goalPair = (v:unknown) => obj(v) && nutrition(v.training) && nutrition(v.r
 const list = (v:unknown, valid:(item:ObjectValue)=>boolean, key:(item:ObjectValue)=>unknown) =>
   Array.isArray(v) && v.every(item=>obj(item)&&valid(item)) && new Set(v.map(key)).size===v.length
 const imageValid = (v:unknown) => v==='' || (str(v) && /^data:image\/(png|jpeg|webp|gif|avif|heic|heif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(v))
+const validSettings = (v:unknown) => obj(v) && v.id==='app' &&
+  (v.theme==='light'||v.theme==='dark'||v.theme==='system')
+const validReportHistory = (v:unknown) => obj(v) && v.id==='nutrition' &&
+  str(v.exportedAt) && Number.isFinite(Date.parse(v.exportedAt)) &&
+  new Date(v.exportedAt).toISOString()===v.exportedAt &&
+  (v.through===undefined||dateValid(v.through)) &&
+  (v.sinceStart===undefined||(dateValid(v.sinceStart)&&dateValid(v.through)&&v.sinceStart<=v.through)) &&
+  (v.lastPeriod===undefined||(obj(v.lastPeriod)&&
+    (v.lastPeriod.mode==='recent'||v.lastPeriod.mode==='since')&&
+    dateValid(v.lastPeriod.start)&&dateValid(v.lastPeriod.end)&&v.lastPeriod.start<=v.lastPeriod.end))
 export function validateBackup(value:unknown):Backup {
-  if(!obj(value) || value.version!==1 ||
+  if(!obj(value) || (value.version!==1 && value.version!==2) ||
     !list(value.foods,r=>str(r.id)&&str(r.name)&&str(r.unit)&&num(r.weight)&&imageValid(r.image)&&nutrition(r.nutrition)&&nutrition(r.input)&&typeof r.favorite==='boolean'&&typeof r.archived==='boolean'&&(r.deleted===undefined||typeof r.deleted==='boolean')&&integer(r.order)&&(r.mode==='unit'||(r.mode==='100g'&&r.weight>0)),r=>r.id) ||
     !list(value.days,r=>dateValid(r.date)&&(r.kind==='rest'||r.kind==='training')&&goalPair(r.goals)&&typeof r.completed==='boolean',r=>r.date) ||
     !list(value.entries,r=>dateValid(r.date)&&str(r.foodId)&&str(r.name)&&str(r.unit)&&integer(r.count)&&r.count>0&&nutrition(r.nutrition),r=>JSON.stringify([r.date,r.foodId])) ||
     !list(value.sets,r=>str(r.id)&&str(r.name)&&list(r.items,x=>str(x.id)&&integer(x.count)&&x.count>0,x=>x.id),r=>r.id) ||
     !list(value.goals,r=>str(r.id)&&dateValid(r.date)&&goalPair(r.goals),r=>r.id) ||
-    !(value.settings===undefined || (obj(value.settings)&&value.settings.id==='app'&&['light','dark','system'].includes(String(value.settings.theme))))) throw new Error('バックアップの形式またはバージョンが無効です。')
-  const data=value as Backup
+    !(value.settings===undefined || validSettings(value.settings)) ||
+    (value.version===2 && value.reportHistory!==undefined && !validReportHistory(value.reportHistory))) throw new Error('バックアップの形式またはバージョンが無効です。')
+  const data={...value,reportHistory:value.version===2?value.reportHistory:undefined} as Backup
   const foods=new Set(data.foods.map(food=>food.id))
   const dates=new Set(data.days.map(day=>day.date))
   if(data.entries.some(entry=>!dates.has(entry.date)||!foods.has(entry.foodId))||data.sets.some(set=>set.items.some(item=>!foods.has(item.id)))) throw new Error('バックアップ内の参照先が見つかりません。')
@@ -171,6 +188,10 @@ export async function restore(value:unknown) {
     await db.entries.bulkAdd(data.entries)
     await db.goals.bulkAdd(data.goals)
     if(data.settings) await db.settings.add(data.settings)
+    if(data.version===2) {
+      await db.reportHistory.clear()
+      if(data.reportHistory) await db.reportHistory.add(data.reportHistory)
+    }
   })
 }
 

@@ -22,7 +22,7 @@ export default function ReportPanel({today, data}:{
     return ()=>sub.unsubscribe()
   },[])
 
-  const dates=reportDates(today,mode,history?.through)
+  const dates=reportDates(today,mode,history?.through,history?.sinceStart)
   const rows=reportRows(dates,data?.days??[],data?.entries??[])
   const recorded=rows.filter(row=>row.day).length
 
@@ -42,8 +42,9 @@ export default function ReportPanel({today, data}:{
     try {
       const now=new Date()
       const end=localDate(now)
-      const report=createReport(reportRows(reportDates(end,mode,history?.through),data.days,data.entries),now)
-      const record={mode,through:end,exportedAt:now.toISOString()}
+      const dates=reportDates(end,mode,history?.through,history?.sinceStart)
+      const report=createReport(reportRows(dates,data.days,data.entries),now)
+      const record={mode,start:dates[0],through:end,exportedAt:now.toISOString()}
       const file=new File([report.text],report.name,{type:'text/markdown;charset=utf-8'})
       const shareData={files:[file]}
       const plainData={files:[new File([report.text],report.name,{type:'text/plain'})]}
@@ -78,7 +79,7 @@ export default function ReportPanel({today, data}:{
       <button aria-pressed={mode==='since'} disabled={busy||!!download} onClick={()=>setMode('since')}>前回の出力以降</button>
     </div>
     {mode==='since'&&ready&&!history?.through&&<p className="muted">初回は直近7日間を出力します。</p>}
-    {mode==='since'&&history?.through===today&&<p className="muted">同日の再出力は今日の記録が対象です。</p>}
+    {mode==='since'&&history?.through===today&&<p className="muted">{history.sinceStart?'同日の再出力は同じ期間が対象です。':'同日の再出力は今日の記録が対象です。'}</p>}
     <p>対象期間 {dates[0]} ～ {today}<br/>
       {data&&<>記録済み {recorded}日 · 未記録 {dates.length-recorded}日</>}
     </p>

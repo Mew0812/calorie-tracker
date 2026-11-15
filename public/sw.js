@@ -1,34 +1,46 @@
-const prefix = 'mydiet:' + self.registration.scope
-const cacheName = prefix + ':v1'
+const root = self.registration.scope
+const prefix = 'mydiet:' + root
+const cacheName = prefix + ':' + '__BUILD_VERSION__'
+const assets = ['__BUILD_ASSETS__']
+const assetUrls = new Set(assets.map(path => new URL(path, root).href))
+
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
-    const root = self.registration.scope
     const response = await fetch(root, {cache:'reload'})
-    if (!response.ok) throw new Error('Unable to cache app shell')
+    if (!response.ok) throw new Error('Unable to load app shell')
     const html = await response.clone().text()
-    const cache = await caches.open(cacheName)
-    const assets = [...html.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g)].map(match => new URL(match[1], root).href)
-    await cache.addAll(assets)
-    await cache.put(root, response)
-    await self.skipWaiting()
-  })())
-})
-self.addEventListener('activate', event => {
-  event.waitUntil((async () => {
-    for (const key of await caches.keys()) if (key.startsWith(prefix) && key !== cacheName) await caches.delete(key)
-    await self.clients.claim()
-  })())
-})
-self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url)
-  if (event.request.method !== 'GET' || !url.href.startsWith(self.registration.scope)) return
-  event.respondWith((async () => {
-    const cache = await caches.open(cacheName)
-    if (event.request.mode === 'navigate') {
-      try { return await fetch(event.request) }
-      catch { return await cache.match(self.registration.scope) || Response.error() }
+    const actual = [...html.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g)].map(match => match[1])
+    if (actual.length !== assets.length || actual.some((path, index) => path !== assets[index])) {
+      throw new Error('App shell does not match the worker build')
     }
-    return await cache.match(event.request) || fetch(event.request)
+    try {
+      const cache = await caches.open(cacheName)
+      await cache.addAll([...assetUrls].map(url => new Request(url, {cache:'reload'})))
+      await cache.put(root, response)
+    } catch (error) {
+      await caches.delete(cacheName)
+      throw error
+    }
   })())
 })
 
+// Let the browser activate the update after all old app windows have closed.
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    for (const key of await caches.keys()) {
+      if (key.startsWith(prefix) && key !== cacheName) await caches.delete(key)
+    }
+  })())
+})
+
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return
+  const url = new URL(event.request.url)
+  const isShell = event.request.mode === 'navigate' &&
+    (url.origin + url.pathname === root || url.origin + url.pathname === root + 'index.html')
+  if (!isShell && !assetUrls.has(url.href)) return
+  event.respondWith((async () => {
+    const cache = await caches.open(cacheName)
+    return await cache.match(isShell ? root : event.request) || fetch(event.request)
+  })())
+})
