@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import {beforeEach, describe, expect, it} from 'vitest'
-import {average, changeQuantities, db, goalAt, initialGoals, localDate, mapping, periodDates, restore, saveGoals, shift, snapshot, sortFoods, summarize, totals, updateDay, type Food} from './model'
+import {average, changeQuantities, db, deleteFood, goalAt, initialGoals, localDate, mapping, periodDates, restore, saveGoals, shift, snapshot, sortFoods, summarize, totals, updateDay, type Food} from './model'
 
 const date='2024-02-29'
 const egg:Food={id:'egg',name:'卵',unit:'個',weight:50,image:'',order:0,mode:'unit',input:{kcal:70,p:6.3,f:5,c:0.1},nutrition:{kcal:70,p:6.3,f:5,c:0.1},favorite:false,archived:false}
@@ -84,3 +84,28 @@ describe('保存',()=>{
   })
 })
 
+
+it('食品を削除しても履歴を維持し、セットと旧バックアップから削除済み食品を除外する',async()=>{
+  await add(2)
+  await db.foods.add({...egg,id:'tofu'})
+  await db.sets.bulkAdd([
+    {id:'empty',name:'卵セット',items:[{id:'egg',count:1}]},
+    {id:'mixed',name:'朝食',items:[{id:'egg',count:1},{id:'tofu',count:1}]}
+  ])
+  const before=await snapshot()
+  await deleteFood('egg')
+  db.close()
+  await db.open()
+  expect(await db.foods.get('egg')).toMatchObject({deleted:true})
+  expect(await db.entries.toArray()).toEqual(before.entries)
+  expect(await db.days.toArray()).toEqual(before.days)
+  const mixed=await db.sets.get('mixed')
+  expect(mixed?.items).toEqual([{id:'tofu',count:1}])
+  await changeQuantities(shift(date,1),mixed!.items,'set')
+  expect((await db.sets.get('empty'))?.items).toEqual([])
+  await restore(JSON.parse(JSON.stringify(await snapshot())))
+  await restore(before)
+  expect(await db.foods.get('egg')).toMatchObject({deleted:true})
+  expect(await db.entries.toArray()).toEqual(before.entries)
+  expect(await db.sets.get('mixed')).toEqual(mixed)
+})

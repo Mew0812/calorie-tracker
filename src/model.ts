@@ -5,7 +5,7 @@ export type Metric = typeof nutrients[number]
 export type Nutrition = Record<Metric, number>
 export type Kind = 'training' | 'rest'
 export type Goals = Record<Kind, Nutrition>
-export type Food = {id:string; name:string; unit:string; weight:number; image:string; nutrition:Nutrition; favorite:boolean; archived:boolean; order:number; mode:'unit'|'100g'; input:Nutrition}
+export type Food = {id:string; name:string; unit:string; weight:number; image:string; nutrition:Nutrition; favorite:boolean; archived:boolean; deleted?:boolean; order:number; mode:'unit'|'100g'; input:Nutrition}
 export type FoodSet = {id:string; name:string; items:{id:string; count:number}[]}
 export type Entry = {date:string; foodId:string; count:number; name:string; unit:string; nutrition:Nutrition}
 export type Day = {date:string; kind:Kind; goals:Goals; completed:boolean}
@@ -61,6 +61,24 @@ async function getDay(date:string):Promise<Day> {
 export async function updateDay(date:string, patch:Partial<Pick<Day,'kind'|'completed'>>) {
   await db.transaction('rw',db.days,db.goals,async()=>db.days.put({...await getDay(date),...patch}))
 }
+export async function deleteFood(id:string) {
+  await db.transaction('rw',db.foods,db.sets,async()=>{
+    const food=await db.foods.get(id)
+    if(!food||food.deleted)return
+    await db.foods.update(id,{deleted:true})
+    const sets=await db.sets.toArray()
+    await db.sets.bulkPut(sets.filter(set=>set.items.some(item=>item.id===id))
+      .map(set=>({...set,items:set.items.filter(item=>item.id!==id)})))
+  })
+}
+export async function saveSet(set:FoodSet) {
+  await db.transaction('rw',db.foods,db.sets,async()=>{
+    const foods=await db.foods.bulkGet(set.items.map(item=>item.id))
+    if(foods.some(food=>!food||food.deleted)) throw new Error('セットに削除済みの食品が含まれています。')
+    await db.sets.put(set)
+  })
+}
+
 export type Undo = {date:string; items:{id:string; count:number}[]}
 export async function changeQuantities(date:string, changes:FoodSet['items'], mode:'normal'|'set'|'undo'='normal'):Promise<Undo> {
   return db.transaction('rw',db.days,db.entries,db.foods,db.goals,async()=>{
@@ -71,7 +89,7 @@ export async function changeQuantities(date:string, changes:FoodSet['items'], mo
       const previous=await db.entries.get([date,id])
       if(mode==='set') {
         const food=await db.foods.get(id)
-        if(!food || food.archived) throw new Error('セットに利用できない食品が含まれています。')
+        if(!food || food.archived || food.deleted) throw new Error('セットに利用できない食品が含まれています。')
       }
       const next=Math.max(0,(previous?.count??0)+count)
       if(!Number.isSafeInteger(next)) throw new Error('数量の上限を超えています。')
@@ -80,7 +98,7 @@ export async function changeQuantities(date:string, changes:FoodSet['items'], mo
       else if(previous) await db.entries.put({...previous,count:next})
       else {
         const food=await db.foods.get(id)
-        if(!food || food.archived) throw new Error('セットに利用できない食品が含まれています。')
+        if(!food || food.archived || food.deleted) throw new Error('セットに利用できない食品が含まれています。')
         await db.entries.put({date,foodId:id,count:next,name:food.name,unit:food.unit,nutrition:food.nutrition})
       }
       items.push({id,count:next-(previous?.count??0)})
@@ -119,10 +137,10 @@ const list = (v:unknown, valid:(item:ObjectValue)=>boolean, key:(item:ObjectValu
 const imageValid = (v:unknown) => v==='' || (str(v) && /^data:image\/(png|jpeg|webp|gif|avif|heic|heif);base64,[A-Za-z0-9+/]+={0,2}$/i.test(v))
 export function validateBackup(value:unknown):Backup {
   if(!obj(value) || value.version!==1 ||
-    !list(value.foods,r=>str(r.id)&&str(r.name)&&str(r.unit)&&num(r.weight)&&imageValid(r.image)&&nutrition(r.nutrition)&&nutrition(r.input)&&typeof r.favorite==='boolean'&&typeof r.archived==='boolean'&&integer(r.order)&&(r.mode==='unit'||(r.mode==='100g'&&r.weight>0)),r=>r.id) ||
+    !list(value.foods,r=>str(r.id)&&str(r.name)&&str(r.unit)&&num(r.weight)&&imageValid(r.image)&&nutrition(r.nutrition)&&nutrition(r.input)&&typeof r.favorite==='boolean'&&typeof r.archived==='boolean'&&(r.deleted===undefined||typeof r.deleted==='boolean')&&integer(r.order)&&(r.mode==='unit'||(r.mode==='100g'&&r.weight>0)),r=>r.id) ||
     !list(value.days,r=>dateValid(r.date)&&(r.kind==='rest'||r.kind==='training')&&goalPair(r.goals)&&typeof r.completed==='boolean',r=>r.date) ||
     !list(value.entries,r=>dateValid(r.date)&&str(r.foodId)&&str(r.name)&&str(r.unit)&&integer(r.count)&&r.count>0&&nutrition(r.nutrition),r=>JSON.stringify([r.date,r.foodId])) ||
-    !list(value.sets,r=>str(r.id)&&str(r.name)&&list(r.items,x=>str(x.id)&&integer(x.count)&&x.count>0,x=>x.id)&&Array.isArray(r.items)&&r.items.length>0,r=>r.id) ||
+    !list(value.sets,r=>str(r.id)&&str(r.name)&&list(r.items,x=>str(x.id)&&integer(x.count)&&x.count>0,x=>x.id),r=>r.id) ||
     !list(value.goals,r=>str(r.id)&&dateValid(r.date)&&goalPair(r.goals),r=>r.id) ||
     !(value.settings===undefined || (obj(value.settings)&&value.settings.id==='app'&&['light','dark','system'].includes(String(value.settings.theme))))) throw new Error('バックアップの形式またはバージョンが無効です。')
   const data=value as Backup
@@ -134,9 +152,14 @@ export function validateBackup(value:unknown):Backup {
 export async function restore(value:unknown) {
   const data=validateBackup(value)
   await db.transaction('rw',db.tables,async()=>{
+    // Keep deletion markers when restoring a backup made before the deletion.
+    const deleted=new Map((await db.foods.toArray()).filter(food=>food.deleted).map(food=>[food.id,food]))
+    for(const food of data.foods) if(food.deleted) deleted.set(food.id,food)
+    const foods=[...data.foods.filter(food=>!deleted.has(food.id)),...deleted.values()]
+    const sets=data.sets.map(set=>({...set,items:set.items.filter(item=>!deleted.has(item.id))}))
     for(const table of db.tables) await table.clear()
-    await db.foods.bulkAdd(data.foods)
-    await db.sets.bulkAdd(data.sets)
+    await db.foods.bulkAdd(foods)
+    await db.sets.bulkAdd(sets)
     await db.days.bulkAdd(data.days)
     await db.entries.bulkAdd(data.entries)
     await db.goals.bulkAdd(data.goals)
