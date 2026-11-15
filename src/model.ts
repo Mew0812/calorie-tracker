@@ -11,6 +11,7 @@ export type Entry = {date:string; foodId:string; count:number; name:string; unit
 export type Day = {date:string; kind:Kind; goals:Goals; completed:boolean}
 export type Revision = {id:string; date:string; goals:Goals}
 export type Settings = {id:'app'; theme:'system'|'light'|'dark'}
+export type ReportHistory = {id:'nutrition'; exportedAt:string; through?:string}
 export const zero = {kcal:0,p:0,f:0,c:0}
 export const initialGoals: Goals = {training:{kcal:2200,p:140,f:60,c:275},rest:{kcal:1900,p:130,f:55,c:220}}
 export const labels = {kcal:'カロリー',p:'タンパク質',f:'脂質',c:'炭水化物'}
@@ -35,10 +36,12 @@ class Database extends Dexie {
   entries!:Table<Entry,[string,string]>
   goals!:Table<Revision,string>
   settings!:Table<Settings,string>
+  reportHistory!:Table<ReportHistory,string>
   constructor(name='MyDiet') {
     super(name)
     this.version(1).stores({foods:'id',sets:'id',days:'date',entries:'[date+foodId],date',goals:'id,date',settings:'id'})
     this.version(2).stores({localBackups:'id'})
+    this.version(3).stores({reportHistory:'id'})
   }
 }
 export const db = new Database()

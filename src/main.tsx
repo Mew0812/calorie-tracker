@@ -4,6 +4,7 @@ import { liveQuery } from 'dexie'
 import { Activity, ArrowDown, ArrowUp, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X, type LucideIcon } from 'lucide-react'
 import { average, backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, labels, localDate, mapping, newId, nutrients, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, summarize, totals, units, updateDay, validateBackup, zero, type Day, type Food, type FoodSet, type Goals, type Metric, type Nutrition, type Settings, type Undo } from './model'
 import './style.css'
+import ReportPanel from './ReportPanel'
 
 const tabs = [['記録',ClipboardList],['分析',ChartNoAxesColumnIncreasing],['カレンダー',CalendarDays],['食品',Utensils],['設定',Gear]] as const
 type Tab=typeof tabs[number][0]
@@ -189,6 +190,7 @@ function App() {
     </>}
     {tab==='分析'&&<>
       <h1>栄養分析</h1>
+      <ReportPanel today={today} data={data}/>
       <div className="toolbar"><div className="segment"><button aria-pressed={!monthly} onClick={()=>setMonthly(false)}>週間</button><button aria-pressed={monthly} onClick={()=>setMonthly(true)}>月間</button></div><input aria-label="分析の基準日" type="date" value={period} onChange={e=>{if(e.target.value)setPeriod(e.target.value)}}/></div>
       <section className="card detail"><PanelTitle icon={ChartNoAxesColumnIncreasing} title={labels[metric]+'の推移'}/><div className="segment metrics">{nutrients.map(key=><button key={key} aria-pressed={key===metric} onClick={()=>setMetric(key)}>{labels[key]}</button>)}</div>
       <p className="muted">{dates[0]} 〜 {dates.at(-1)} · 斜線は記録中</p>
