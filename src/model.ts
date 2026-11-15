@@ -35,7 +35,6 @@ class Database extends Dexie {
   entries!:Table<Entry,[string,string]>
   goals!:Table<Revision,string>
   settings!:Table<Settings,string>
-  localBackups!:Table<LocalBackup,string>
   constructor(name='MyDiet') {
     super(name)
     this.version(1).stores({foods:'id',sets:'id',days:'date',entries:'[date+foodId],date',goals:'id,date',settings:'id'})
@@ -126,14 +125,8 @@ export async function snapshot() {
   }))
 }
 type Backup = Awaited<ReturnType<typeof snapshot>>
-export type LocalBackup = {id:'latest'; savedOn:string; data:Backup}
-export async function saveLocalBackup() {
-  const data=await snapshot()
-  await db.localBackups.put({id:'latest',savedOn:localDate(),data})
-}
-
-export function backupReminderDue(today:string, lastSaved?:string) {
-  return shift(today,1).slice(0,7)!==today.slice(0,7) && lastSaved!==today
+export function backupReminderDue(today:string) {
+  return shift(today,1).slice(0,7)!==today.slice(0,7)
 }
 type ObjectValue = Record<string, unknown>
 const obj = (v:unknown):v is ObjectValue => typeof v==='object' && v!==null && !Array.isArray(v)

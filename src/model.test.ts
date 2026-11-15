@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import {beforeEach, describe, expect, it} from 'vitest'
-import {average, backupReminderDue, changeQuantities, db, deleteFood, goalAt, initialGoals, localDate, mapping, periodDates, restore, saveGoals, saveLocalBackup, shift, snapshot, sortFoods, summarize, totals, updateDay, type Food} from './model'
+import {average, backupReminderDue, changeQuantities, db, deleteFood, goalAt, initialGoals, localDate, mapping, periodDates, restore, saveGoals, shift, snapshot, sortFoods, summarize, totals, updateDay, type Food} from './model'
 
 const date='2024-02-29'
 const egg:Food={id:'egg',name:'卵',unit:'個',weight:50,image:'',order:0,mode:'unit',input:{kcal:70,p:6.3,f:5,c:0.1},nutrition:{kcal:70,p:6.3,f:5,c:0.1},favorite:false,archived:false}
@@ -110,18 +110,8 @@ it('食品を削除しても履歴を維持し、セットと旧バックアッ�
   expect(await db.sets.get('mixed')).toEqual(mixed)
 })
 
-it('月末だけ案内し、当日保存済みなら表示しない',()=>{
+it('月末だけ案内する',()=>{
   expect(backupReminderDue('2024-02-28')).toBe(false)
   expect(backupReminderDue('2024-02-29')).toBe(true)
-  expect(backupReminderDue('2024-02-29','2024-02-29')).toBe(false)
   expect(backupReminderDue('2026-12-31')).toBe(true)
-})
-it('アプリ内バックアップから復元しても保存済みコピーを保持する',async()=>{
-  await add(2)
-  await saveLocalBackup()
-  const saved=await db.localBackups.get('latest')
-  await add(1)
-  await restore(saved!.data)
-  expect((await db.entries.get([date,'egg']))?.count).toBe(2)
-  expect(await db.localBackups.get('latest')).toEqual(saved)
 })

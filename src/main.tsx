@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type FormEvent, type Re
 import { createRoot } from 'react-dom/client'
 import { liveQuery } from 'dexie'
 import { Activity, ArrowDown, ArrowUp, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X, type LucideIcon } from 'lucide-react'
-import { average, backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, labels, localDate, mapping, newId, nutrients, periodDates, restore, saveGoals, saveLocalBackup, saveSet, shift, snapshot, sortFoods, summarize, totals, units, updateDay, validateBackup, zero, type Day, type Food, type FoodSet, type Goals, type Metric, type Nutrition, type Settings, type Undo } from './model'
+import { average, backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, labels, localDate, mapping, newId, nutrients, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, summarize, totals, units, updateDay, validateBackup, zero, type Day, type Food, type FoodSet, type Goals, type Metric, type Nutrition, type Settings, type Undo } from './model'
 import './style.css'
 
 const tabs = [['記録',ClipboardList],['分析',ChartNoAxesColumnIncreasing],['カレンダー',CalendarDays],['食品',Utensils],['設定',Gear]] as const
@@ -85,7 +85,6 @@ function SetEditor({item,foods,save,remove,close}:{item:FoodSet;foods:Food[];sav
 
 function App() {
   const [data,setData]=useState<Awaited<ReturnType<typeof snapshot>>>()
-  const [localBackup,setLocalBackup]=useState<import('./model').LocalBackup>()
   const [dismissedReminder,setDismissedReminder]=useState('')
   const [today,setToday]=useState(localDate)
   const [date,setDate]=useState(today)
@@ -108,8 +107,7 @@ function App() {
   const fail=(error:unknown)=>setNote(error instanceof Error?error.message:String(error))
   useEffect(()=>{
     const sub=liveQuery(snapshot).subscribe({next:setData,error:fail})
-    const backupSub=liveQuery(()=>db.localBackups.get('latest')).subscribe({next:setLocalBackup,error:fail})
-    return ()=>{sub.unsubscribe();backupSub.unsubscribe()}
+    return ()=>sub.unsubscribe()
   },[])
   useEffect(()=>{
     const check=()=>{const current=localDate();if(current!==today){setToday(current);setDate(previous=>previous===today?current:previous)}}
@@ -153,7 +151,7 @@ function App() {
     })
   }
   const navigate=(next:Tab)=>{setTab(next);window.scrollTo(0,0)}
-  const reminder=data&&dismissedReminder!==today&&backupReminderDue(today,localBackup?.savedOn)&&(data.foods.length>0||data.days.length>0)
+  const reminder=data&&dismissedReminder!==today&&backupReminderDue(today)&&(data.foods.length>0||data.days.length>0)
   const dayControls=<div className="date-row"><button className="icon" aria-label="前の日" onClick={()=>setDate(shift(date,-1))}><ChevronLeft size={19}/></button><label className="date-picker"><span>{date===today?'今日・':''}{dayLabel(date)}</span><input type="date" aria-label="記録日" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}}/></label><button className="icon" aria-label="次の日" onClick={()=>setDate(shift(date,1))}><ChevronRight size={19}/></button></div>
   const detail=<><NutritionCard used={used} goal={goal}/><section className="card detail"><PanelTitle icon={ClipboardList} title="記録の詳細"/><p>{status(day)} · {day?.kind==='training'?'筋トレ日':'休養日'} · 目標との差 {day?signed(used.kcal-goal.kcal)+' kcal':'—'}</p>{entries.map(entry=><div className="detail-row" key={entry.foodId}><span>{entry.name}</span><strong>{entry.count} {entry.unit}</strong></div>)}{!entries.length&&<p className="muted">食品の記録はありません。</p>}</section></>
 
@@ -215,14 +213,24 @@ function App() {
       {settingsView==='main'&&<section className="card detail"><PanelTitle icon={Gear} title="アプリ設定"/><label>外観<select value={data?.settings?.theme??'system'} onChange={e=>{const theme=e.target.value as Settings['theme'];run(()=>db.settings.put({id:'app',theme}))}}><option value="system">端末の設定に合わせる</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label><div className="detail-row"><button className="link" onClick={()=>run(async()=>{setGoals(await goalAt(today));setSettingsView('goals')})}>筋トレ日・休養日の目標 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>setSettingsView('backup')}>バックアップ・復元 <ChevronRight size={17}/></button></div></section>}
       {settingsView==='goals'&&<form onSubmit={(e:FormEvent)=>{e.preventDefault();exclusive(async()=>{await saveGoals(goals)})}}>{(['training','rest'] as const).map(kind=><section className="card detail" key={kind}><h2>{kind==='training'?'筋トレ日':'休養日'}</h2><NutrientFields value={goals[kind]} parse={Number} change={value=>setGoals({...goals,[kind]:value})}/></section>)}<button className="primary" disabled={busy}>目標を保存</button></form>}
       {settingsView==='backup'&&<section className="card detail">
-        <button className="primary" disabled={busy} onClick={()=>exclusive(saveLocalBackup)}>アプリ内に保存</button>
-        <p className="muted">{localBackup?`最終保存日：${localBackup.savedOn}（最新1件）`:'この端末のアプリ内に最新1件を保存します。'}</p>
-        {localBackup&&<button onClick={()=>setPendingBackup(localBackup.data)}>アプリ内のバックアップを復元</button>}
-        <p className="muted">機種変更やアプリのデータ消去に備える場合は、JSONをファイルに保存してください。</p>
-        <button onClick={()=>run(async()=>{
-        const latest=await snapshot();const url=URL.createObjectURL(new Blob([JSON.stringify(latest,null,2)],{type:'application/octet-stream'}))
-        const link=document.createElement('a');link.href=url;link.download='mydiet-'+localDate()+'.json';document.body.append(link);link.click();link.remove();window.setTimeout(()=>URL.revokeObjectURL(url),30000)
-      })}>JSONをエクスポート</button><label>復元するファイル<input type="file" accept=".json,application/json" onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)run(async()=>setPendingBackup(validateBackup(JSON.parse(await file.text()))))}}/></label></section>}
+        <button className="primary" disabled={!data} onClick={()=>run(async()=>{
+          if(!data)return
+          const file=new File([JSON.stringify(data,null,2)],'mydiet-'+localDate()+'.json',{type:'application/json'})
+          const shareData={files:[file]}
+          if(navigator.share&&navigator.canShare?.(shareData)){
+            try {await navigator.share(shareData)}
+            catch(error){if(!(error instanceof DOMException&&error.name==='AbortError'))throw error}
+            return
+          }
+          const url=URL.createObjectURL(new Blob([file],{type:'application/octet-stream'}))
+          const link=document.createElement('a')
+          link.href=url
+          link.download=file.name
+          document.body.append(link)
+          link.click()
+          link.remove()
+          window.setTimeout(()=>URL.revokeObjectURL(url),30000)
+        })}>JSONをエクスポート</button><label>復元するファイル<input type="file" accept=".json,application/json" onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)run(async()=>setPendingBackup(validateBackup(JSON.parse(await file.text()))))}}/></label></section>}
     </>}
     </main>
     <nav className="nav" aria-label="メインメニュー"><div>{tabs.map(([name,Icon])=><button key={name} aria-current={tab===name?'page':undefined} onClick={()=>navigate(name)}><Icon size={21}/><span>{name}</span></button>)}</div></nav>
