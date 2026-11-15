@@ -35,9 +35,11 @@ class Database extends Dexie {
   entries!:Table<Entry,[string,string]>
   goals!:Table<Revision,string>
   settings!:Table<Settings,string>
+  localBackups!:Table<LocalBackup,string>
   constructor(name='MyDiet') {
     super(name)
     this.version(1).stores({foods:'id',sets:'id',days:'date',entries:'[date+foodId],date',goals:'id,date',settings:'id'})
+    this.version(2).stores({localBackups:'id'})
   }
 }
 export const db = new Database()
@@ -124,6 +126,15 @@ export async function snapshot() {
   }))
 }
 type Backup = Awaited<ReturnType<typeof snapshot>>
+export type LocalBackup = {id:'latest'; savedOn:string; data:Backup}
+export async function saveLocalBackup() {
+  const data=await snapshot()
+  await db.localBackups.put({id:'latest',savedOn:localDate(),data})
+}
+
+export function backupReminderDue(today:string, lastSaved?:string) {
+  return shift(today,1).slice(0,7)!==today.slice(0,7) && lastSaved!==today
+}
 type ObjectValue = Record<string, unknown>
 const obj = (v:unknown):v is ObjectValue => typeof v==='object' && v!==null && !Array.isArray(v)
 const str = (v:unknown):v is string => typeof v==='string' && v.trim().length>0
@@ -157,7 +168,7 @@ export async function restore(value:unknown) {
     for(const food of data.foods) if(food.deleted) deleted.set(food.id,food)
     const foods=[...data.foods.filter(food=>!deleted.has(food.id)),...deleted.values()]
     const sets=data.sets.map(set=>({...set,items:set.items.filter(item=>!deleted.has(item.id))}))
-    for(const table of db.tables) await table.clear()
+    for(const table of [db.foods,db.sets,db.days,db.entries,db.goals,db.settings]) await table.clear()
     await db.foods.bulkAdd(foods)
     await db.sets.bulkAdd(sets)
     await db.days.bulkAdd(data.days)
