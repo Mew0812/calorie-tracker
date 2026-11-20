@@ -52,6 +52,18 @@ class Database extends Dexie {
 }
 export const db = new Database()
 export const sortFoods = (foods:Food[]) => [...foods].sort((a,b)=>Number(b.favorite)-Number(a.favorite)||a.order-b.order)
+export async function reorderFood(id:string, targetId:string, after:boolean) {
+  await db.transaction('rw',db.foods,async()=>{
+    const food=await db.foods.get(id)
+    if(!food||food.archived||food.deleted)return
+    const group=sortFoods(await db.foods.toArray()).filter(item=>!item.archived&&!item.deleted&&item.favorite===food.favorite)
+    const target=group.find(item=>item.id===targetId)
+    if(!target||target.id===id)return
+    const ordered=group.filter(item=>item.id!==id)
+    ordered.splice(ordered.findIndex(item=>item.id===targetId)+(after?1:0),0,food)
+    await db.foods.bulkPut(ordered.map((item,order)=>({...item,order})))
+  })
+}
 export async function goalAt(date:string) {
   const revisions=await db.goals.where('date').belowOrEqual(date).sortBy('date')
   return revisions.at(-1)?.goals ?? initialGoals

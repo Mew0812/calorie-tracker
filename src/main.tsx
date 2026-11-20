@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { liveQuery } from 'dexie'
-import { Activity, ArrowDown, ArrowUp, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X } from 'lucide-react'
+import { Activity, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X } from 'lucide-react'
 import { backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, localDate, newId, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, totals, updateDay, validateBackup, zero, type Food, type FoodSet, type Metric, type Settings, type Undo } from './model'
 import './style.css'
 import { nutritionDraft, parseNutrition } from './nutritionInput'
+import FoodList from './FoodList'
+import MealBreakdown from './MealBreakdown'
 import AnalysisScreen from './AnalysisScreen'
 import { dayLabel, signed, status } from './display'
 import { ErrorNotice, Modal, NutrientFields, NutritionCard, PanelTitle } from './ui'
@@ -24,6 +26,7 @@ function App() {
   const [period,setPeriod]=useState(today)
   const [monthly,setMonthly]=useState(false)
   const [metric,setMetric]=useState<Metric>('kcal')
+  const [mealOpen,setMealOpen]=useState(false)
   const [foodEdit,setFoodEdit]=useState<Food>()
   const [setEdit,setSetEdit]=useState<FoodSet>()
   const [foodView,setFoodView]=useState<'active'|'archive'|'sets'>('active')
@@ -64,15 +67,6 @@ function App() {
   const used=totals(entries)
   const sets=data?.sets??[]
   const calendar=periodDates(month,true)
-  async function move(food:Food,offset:number) {
-    await db.transaction('rw',db.foods,async()=>{
-      const same=sortFoods(await db.foods.toArray()).filter(x=>!x.archived&&!x.deleted&&x.favorite===food.favorite)
-      const index=same.findIndex(x=>x.id===food.id)
-      if(index<0||!same[index+offset])return
-      ;[same[index],same[index+offset]]=[same[index+offset],same[index]]
-      await db.foods.bulkPut(same.map((x,order)=>({...x,order})))
-    })
-  }
   const navigate=(next:Tab)=>{setTab(next);window.scrollTo(0,0)}
   const reminder=data&&dismissedReminder!==today&&backupReminderDue(today)&&(data.foods.length>0||data.days.length>0)
   const dayControls=<div className="date-row"><button className="icon" aria-label="前の日" onClick={()=>setDate(shift(date,-1))}><ChevronLeft size={19}/></button><label className="date-picker"><span>{date===today?'今日・':''}{dayLabel(date)}</span><input type="date" aria-label="記録日" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}}/></label><button className="icon" aria-label="次の日" onClick={()=>setDate(shift(date,1))}><ChevronRight size={19}/></button></div>
@@ -88,7 +82,7 @@ function App() {
     {tab==='記録'&&<>
       <div className="hero"><div><div className="eyebrow"><span/>{status(day)}</div><h1>{date===today?'今日の食事記録':'日別の食事記録'}</h1></div>{dayControls}</div>
       <div className="day-type"><button aria-pressed={day?.kind!=='training'} disabled={day?.completed} onClick={()=>run(()=>updateDay(date,{kind:'rest'}))}>休養日</button><button aria-pressed={day?.kind==='training'} disabled={day?.completed} onClick={()=>run(()=>updateDay(date,{kind:'training'}))}><Dumbbell size={15}/>筋トレ日</button></div>
-      <NutritionCard used={used} goal={goal}/>
+      <NutritionCard used={used} goal={goal} open={()=>setMealOpen(true)}/>
       <section className="block"><PanelTitle icon={Layers} title="食品セット"/>
         {sets.length>0&&<div className="scroll-row">{sets.map(item=><button className="set card" disabled={day?.completed||busy||!item.items.length||item.items.some(row=>!active.some(food=>food.id===row.id))} key={item.id} onClick={()=>exclusive(async()=>{const result=await changeQuantities(date,item.items,'set');setUndo(result)})}><span className="tile-icon"><Layers size={19}/></span><span><strong>{item.name}</strong><small>{item.items.length}種類</small></span><Plus size={18}/></button>)}
         </div>}
@@ -114,12 +108,7 @@ function App() {
     {tab==='食品'&&<>
       <div className="section-title"><h1>食品管理</h1>{foodView!=='archive'&&<button className="primary" onClick={()=>foodView==='sets'?setSetEdit({id:newId(),name:'',items:[]}):setFoodEdit(blankFood())}><Plus size={18}/>新規作成</button>}</div>
       <div className="segment"><button aria-pressed={foodView==='active'} onClick={()=>setFoodView('active')}>食品</button><button aria-pressed={foodView==='sets'} onClick={()=>setFoodView('sets')}>セット</button><button aria-pressed={foodView==='archive'} onClick={()=>setFoodView('archive')}>アーカイブ</button></div>
-      {foodView==='sets'?<section className="card detail">{sets.length?sets.map(item=><div className="detail-row" key={item.id}><span>{item.name} · {item.items.length}種類</span><button onClick={()=>setSetEdit(item)}>編集</button></div>):<p className="muted">食品セットはありません。</p>}</section>:<section className="card detail">{(foodView==='archive'?foods.filter(food=>food.archived):active).map(food=>{
-        const group=active.filter(x=>x.favorite===food.favorite);const index=group.findIndex(x=>x.id===food.id)
-        return <div className="manage-row" key={food.id}><div className="manage-info"><button className="link" onClick={()=>setFoodEdit(food)}>{food.name}</button><small className={food.nutrition.kcal===0?'over':undefined}>{fmt(food.nutrition.kcal)} kcal</small></div><div className="manage-actions">{food.archived?<button className="manage-restore" onClick={()=>run(()=>db.foods.update(food.id,{archived:false}))}>復活</button>:<>
-          <button className="icon" aria-label={food.name+'のお気に入り'} aria-pressed={food.favorite} onClick={()=>run(()=>db.foods.update(food.id,{favorite:!food.favorite}))}><Star size={18} fill={food.favorite?'currentColor':'none'}/></button>
-          <button className="icon" aria-label={food.name+'を上へ'} disabled={index===0} onClick={()=>run(()=>move(food,-1))}><ArrowUp size={18}/></button><button className="icon" aria-label={food.name+'を下へ'} disabled={index===group.length-1} onClick={()=>run(()=>move(food,1))}><ArrowDown size={18}/></button><button onClick={()=>run(()=>db.foods.update(food.id,{archived:true}))}>保管</button></>}<button className="icon danger" aria-label={food.name+'を削除'} onClick={()=>{setNote('');setFoodDelete(food)}}><Trash2 size={18}/></button></div></div>
-      })}{!(foodView==='archive'?foods.some(food=>food.archived):active.length)&&<p className="muted">表示する食品がありません。</p>}</section>}
+      {foodView==='sets'?<section className="card detail">{sets.length?sets.map(item=><div className="detail-row" key={item.id}><span>{item.name} · {item.items.length}種類</span><button onClick={()=>setSetEdit(item)}>編集</button></div>):<p className="muted">食品セットはありません。</p>}</section>:<section className="card detail"><FoodList foods={foodView==='archive'?foods.filter(food=>food.archived):active} edit={setFoodEdit} remove={food=>{setNote('');setFoodDelete(food)}} run={run}/></section>}
     </>}
     {tab==='設定'&&<>
       <h1>{settingsView==='goals'?'目標設定':settingsView==='backup'?'バックアップ・復元':'設定'}</h1>
@@ -148,6 +137,7 @@ function App() {
     </>}
     </main>
     <nav className="nav" aria-label="メインメニュー"><div>{tabs.map(([name,Icon])=><button key={name} aria-current={tab===name?'page':undefined} onClick={()=>navigate(name)}><Icon size={21}/><span>{name}</span></button>)}</div></nav>
+    {mealOpen&&<MealBreakdown date={date} entries={entries} close={()=>setMealOpen(false)}/>}
     {foodEdit&&<FoodEditor food={foodEdit} close={()=>setFoodEdit(undefined)} fail={fail} save={food=>exclusive(async()=>{
       await db.transaction('rw',db.foods,async()=>{const existing=await db.foods.get(food.id);if(existing?.deleted)throw new Error('この食品は削除済みです。');const all=await db.foods.toArray();await db.foods.put({...food,order:existing?.order??Math.max(-1,...all.map(x=>x.order))+1})})
       setFoodEdit(undefined)

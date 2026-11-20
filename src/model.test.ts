@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import {average, backupReminderDue, changeQuantities, db, deleteFood, goalAt, initialGoals, localDate, mapping, periodDates, restore, saveGoals, shift, snapshot, sortFoods, summarize, totals, updateDay, type Food} from './model'
+import {average, backupReminderDue, changeQuantities, db, deleteFood, reorderFood, goalAt, initialGoals, localDate, mapping, periodDates, restore, saveGoals, shift, snapshot, sortFoods, summarize, totals, updateDay, type Food} from './model'
 
 const date='2024-02-29'
 const egg:Food={id:'egg',name:'卵',unit:'個',weight:50,image:'',order:0,mode:'unit',input:{kcal:70,p:6.3,f:5,c:0.1},nutrition:{kcal:70,p:6.3,f:5,c:0.1},favorite:false,archived:false}
@@ -151,4 +151,17 @@ it('マスター変更後も同じ日のセット追加と取り消しに元の�
   await deleteFood(egg.id)
   await expect(add(1)).rejects.toThrow()
   expect(await db.entries.get([date,egg.id])).toEqual(original)
+})
+
+it('ドラッグの前後挿入を保存し、お気に入りのグループを越えて移動しない',async()=>{
+  await db.foods.bulkAdd([{...egg,id:'b',order:1},{...egg,id:'c',order:2},{...egg,id:'fav',favorite:true}])
+  await reorderFood('egg','c',true)
+  db.close()
+  await db.open()
+  expect(sortFoods(await db.foods.toArray()).map(food=>food.id)).toEqual(['fav','b','c','egg'])
+  await reorderFood('egg','b',false)
+  expect(sortFoods(await db.foods.toArray()).map(food=>food.id)).toEqual(['fav','egg','b','c'])
+  const before=await snapshot()
+  await reorderFood('egg','fav',true)
+  expect(await snapshot()).toEqual(before)
 })
