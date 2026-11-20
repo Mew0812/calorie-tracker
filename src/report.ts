@@ -45,7 +45,7 @@ export function reportRows(dates:string[], days:Day[], entries:Entry[]) {
 
 const prompt=`# ChatGPTへの栄養分析依頼
 
-このファイルはMyDietから出力した食事記録です。栄養学的な観点から、実際に食べた食品の種類・量・頻度・組み合わせを中心に、日本語で実用的な改善案を提案してください。カロリーとPFCの目標はすでに管理しているため、その過不足の説明は必要な範囲に絞ってください。
+このファイルはMyDietから出力した食事記録です。栄養学的な観点から、実際に食べた食品の種類・量・頻度・組み合わせを中心に、日本語で実用的な改善案を提案してください。カロリーとタンパク質・脂質・炭水化物の目標はすでに管理しているため、その過不足の説明は必要な範囲に絞ってください。
 
 野菜、果物、魚、肉、卵、乳製品、大豆製品、穀類の摂取状況、食物繊維・ビタミン・ミネラルの不足リスク、塩分・飽和脂肪酸が多くなりやすい構成、筋トレ日と休養日の食事内容を優先して分析してください。
 
@@ -89,8 +89,8 @@ export function createReport(rows:ReturnType<typeof reportRows>, generatedAt:Dat
     '- 対象期間: '+start+' ～ '+end,
     '- 記録済み: '+recorded.length+'日（完了 '+complete.length+'日・記録中 '+draft.length+'日）、未記録: '+(rows.length-recorded.length)+'日',
     '- 筋トレ日: '+recorded.filter(row=>row.day?.kind==='training').length+'日、休養日: '+recorded.filter(row=>row.day?.kind==='rest').length+'日（記録済みのみ）',
-    '- 栄養値の並び: カロリー / P / F / C。差は摂取量 − 目標。',
-    '- PFC由来エネルギー比率は P×4、F×9、C×4（kcal/g）の各値をその合計で割ったもの。食品表示カロリーとは食物繊維などの影響で一致しない場合があります。',
+    '- 栄養値の並び: カロリー / タンパク質 / 脂質 / 炭水化物。差は摂取量 − 目標。',
+    '- タンパク質・脂質・炭水化物由来エネルギー比率は タンパク質×4、脂質×9、炭水化物×4（kcal/g）の各値をその合計で割ったもの。食品表示カロリーとは食物繊維などの影響で一致しない場合があります。',
     '- 食品名・単位・栄養値は記録時点の登録値です。ブランド・調理法・加工状態・可食部重量は別途確認できません。登録値が0 kcalの食品は実際に0か未入力か判別できません。未記録日は摂取量不明です。','','## 日別の記録']
   const groups=new Map<string,{entries:Entry[];dates:Set<string>}>()
   for(const row of rows) {
@@ -100,9 +100,9 @@ export function createReport(rows:ReturnType<typeof reportRows>, generatedAt:Dat
     const goal=day.goals[day.kind]
     lines.push(kindLabel(day.kind)+' / '+(day.completed?'記録完了':'記録中'), '',
       '- 摂取: '+values(total),'- 目標: '+values(goal),'- 差: '+delta(mapping(key=>total[key]-goal[key])),
-      '- PFC比率: '+energy(total),'')
+      '- タンパク質・脂質・炭水化物比率: '+energy(total),'')
     if(!foods.length) {lines.push('食品の登録なし');continue}
-    lines.push('| 食品名 | 登録単位 | 数量 | 摂取量 | カロリー / P / F / C |','|---|---|---:|---|---|')
+    lines.push('| 食品名 | 登録単位 | 数量 | 摂取量 | カロリー / タンパク質 / 脂質 / 炭水化物 |','|---|---|---:|---|---|')
     for(const entry of foods) {
       lines.push('| '+[cell(entry.name),cell(entry.unit),entry.count,cell(amount(entry.unit,entry.count)),values(totals([entry]))].join(' | ')+' |')
       const key=JSON.stringify([entry.foodId,entry.name,entry.unit])
@@ -114,7 +114,7 @@ export function createReport(rows:ReturnType<typeof reportRows>, generatedAt:Dat
   }
   lines.push('','## 期間の食品集計（記録中を含む）','',
     '同一食品でも記録時の名前や単位が異なる場合は別行にしています。平均数量は摂取日の平均です。',
-    '| 食品名 | 登録単位 | 摂取日数 | 合計数量 | 合計摂取量 | 摂取日平均数量 | 合計カロリー / P / F / C |','|---|---|---:|---:|---|---:|---|')
+    '| 食品名 | 登録単位 | 摂取日数 | 合計数量 | 合計摂取量 | 摂取日平均数量 | 合計カロリー / タンパク質 / 脂質 / 炭水化物 |','|---|---|---:|---:|---|---:|---|')
   for(const {entries,dates} of [...groups.values()].sort((a,b)=>b.dates.size-a.dates.size)) {
     const {name,unit}=entries[0]
     const count=entries.reduce((sum,entry)=>sum+entry.count,0)
@@ -129,7 +129,7 @@ export function createReport(rows:ReturnType<typeof reportRows>, generatedAt:Dat
       '- 合計: '+(group.length?values(total):'対象なし'),
       '- 平均: '+(group.length?values(mapping(key=>total[key]/group.length)):'対象なし'),
       '- 目標との差の合計: '+(group.length?delta(targetDifference):'対象なし'),
-      '- PFC比率（合計から算出）: '+energy(total))
+      '- タンパク質・脂質・炭水化物比率（合計から算出）: '+energy(total))
     for(const kind of ['training','rest'] as const) {
       const subset=group.filter(row=>row.day?.kind===kind)
       const subtotal=groupTotal(subset)

@@ -13,7 +13,7 @@ export function NutritionCard({used,goal,open}:{used:Nutrition;goal:Nutrition;op
     <div className="energy"><span className="caption">摂取カロリー</span><div className="ring" style={{background:'conic-gradient(var(--blue) '+(progress(used.kcal,goal.kcal)*100)+'%, var(--track) 0)'}}>
       <div><strong>{fmt(used.kcal)}</strong><small> / {fmt(goal.kcal)} kcal</small></div>
     </div><span className={'balance '+(used.kcal>goal.kcal?'over':'')}>{balance(used.kcal,goal.kcal,'kcal')}</span></div>
-    <div className="macros">{(['p','f','c'] as const).map(key=><div className={'macro '+key} key={key}><div className="macro-head"><strong><b>{key.toUpperCase()}</b> {labels[key]}</strong><span>{fmt(used[key])} / {fmt(goal[key])} g</span></div>
+    <div className="macros">{(['p','f','c'] as const).map(key=><div className={'macro '+key} key={key}><div className="macro-head"><strong>{labels[key]}</strong><span>{fmt(used[key])} / {fmt(goal[key])} g</span></div>
       <div className="track"><i style={{width:progress(used[key],goal[key])*100+'%'}}/></div><small className={used[key]>goal[key]?'over':''}>{balance(used[key],goal[key],'g')}</small></div>)}</div>
   </section>
 }

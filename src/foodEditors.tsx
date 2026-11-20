@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
-import { fmt, mapping, nutrients, units, type Food, type FoodSet } from './model'
+import { fmt, labels, mapping, nutrients, units, type Food, type FoodSet } from './model'
 import { nutritionDraft, parseNutrientInput, parseNutrition } from './nutritionInput'
 import { Modal, NutrientFields } from './ui'
 
@@ -31,7 +31,7 @@ export function FoodEditor({food,save,close,fail}:{food:Food;save:(food:Food)=>v
     <div className="segment"><button type="button" aria-pressed={draft.mode==='unit'} onClick={()=>set({...draft,mode:'unit'})}>1単位あたり</button><button type="button" aria-pressed={draft.mode==='100g'} disabled={!hasWeight} onClick={()=>set({...draft,mode:'100g'})}>100gあたり</button></div>
     {!hasWeight&&<small>100gあたりの換算には保存済みの重量が必要です。1単位あたりの栄養成分を入力してください。</small>}
     <NutrientFields value={inputText} change={setInputText}/>
-    {!needsWeight&&<div className="notice"><strong>1単位あたり{draft.unit.trim() && `（${draft.unit}）`}</strong><div>{nutrients.map(key=><span key={key}>{key==='kcal'?'':key.toUpperCase()+' '}{fmt(nutrition[key])} {units[key]}　</span>)}</div></div>}
+    {!needsWeight&&<div className="notice"><strong>1単位あたり{draft.unit.trim() && `（${draft.unit}）`}</strong><div>{nutrients.map(key=><span key={key}>{labels[key]} {fmt(nutrition[key])} {units[key]}　</span>)}</div></div>}
     <label className="row"><input type="checkbox" checked={draft.favorite} onChange={e=>set({...draft,favorite:e.target.checked})}/>お気に入り</label>
     <button className="primary wide" disabled={reading||needsWeight}>保存する</button>
   </form></Modal>
