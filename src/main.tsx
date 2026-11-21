@@ -7,6 +7,9 @@ import './style.css'
 import { nutritionDraft, parseGoal } from './nutritionInput'
 import FoodList from './FoodList'
 import MealBreakdown from './MealBreakdown'
+import CloudBackupPanel from './CloudBackupPanel'
+import { useCloudBackup } from './useCloudBackup'
+import { restoreCloudBackup } from './cloudStorage'
 import AnalysisScreen from './AnalysisScreen'
 import { dayLabel, signed, status } from './display'
 import { ErrorNotice, Modal, NutrientFields, NutritionCard, PanelTitle } from './ui'
@@ -18,6 +21,7 @@ const blankFood=():Food=>({id:newId(),name:'',unit:'',weight:0,image:'',nutritio
 
 function App() {
   const [data,setData]=useState<Awaited<ReturnType<typeof snapshot>>>()
+  const cloud=useCloudBackup(!!data)
   const [dismissedReminder,setDismissedReminder]=useState('')
   const [today,setToday]=useState(localDate)
   const [date,setDate]=useState(today)
@@ -134,6 +138,11 @@ function App() {
           link.remove()
           window.setTimeout(()=>URL.revokeObjectURL(url),30000)
         })}>JSONをエクスポート</button><label>復元するファイル<input type="file" accept=".json,application/json" onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)run(async()=>setPendingBackup(validateBackup(JSON.parse(await file.text()))))}}/></label></section>}
+      {settingsView==='backup'&&<CloudBackupPanel cloud={cloud} restore={async next=>{
+        await restoreCloudBackup(next,cloud.recoveryKey)
+        setUndo(undefined)
+        return true
+      }}/>}
     </>}
     </main>
     <nav className="nav" aria-label="メインメニュー"><div>{tabs.map(([name,Icon])=><button key={name} aria-current={tab===name?'page':undefined} onClick={()=>navigate(name)}><Icon size={21}/><span>{name}</span></button>)}</div></nav>

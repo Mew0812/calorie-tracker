@@ -51,11 +51,13 @@ class Database extends Dexie {
   goals!:Table<Revision,string>
   settings!:Table<Settings,string>
   reportHistory!:Table<ReportHistory,string>
+  cloudLocal!:Table<{key:string; value:unknown},string>
   constructor(name='MyDiet') {
     super(name)
     this.version(1).stores({foods:'id',sets:'id',days:'date',entries:'[date+foodId],date',goals:'id,date',settings:'id'})
     this.version(2).stores({localBackups:'id'})
     this.version(3).stores({reportHistory:'id'})
+    this.version(4).stores({cloudLocal:'key'})
   }
 }
 export const db = new Database()
@@ -155,7 +157,7 @@ export async function snapshot() {
     reportHistory:await db.reportHistory.get('nutrition')
   }))
 }
-type Backup = Awaited<ReturnType<typeof snapshot>>
+export type Backup = Awaited<ReturnType<typeof snapshot>>
 export function backupReminderDue(today:string) {
   return shift(today,1).slice(0,7)!==today.slice(0,7)
 }

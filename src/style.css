@@ -63,3 +63,6 @@
 .meal-selected-value{color:var(--blue);font-size:21px;text-align:right;max-width:140px;overflow-wrap:anywhere}
 .meal-nutrients{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;font-size:12px;color:var(--muted)}
 .meal-nutrients span{overflow-wrap:anywhere}
+.cloud-backup fieldset{border:0;padding:0;min-width:0;display:grid;gap:12px}
+.cloud-backup p{overflow-wrap:anywhere}
+.cloud-backup select{max-width:100%}
