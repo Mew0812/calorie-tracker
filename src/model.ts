@@ -19,7 +19,15 @@ export type ReportHistory = {
   lastPeriod?:{mode:'recent'|'since'; start:string; end:string}
 }
 export const zero = {kcal:0,p:0,f:0,c:0}
-export const initialGoals: Goals = {training:{kcal:2200,p:140,f:60,c:275},rest:{kcal:1900,p:130,f:55,c:220}}
+export function calorieGoal(value:Pick<Nutrition,'p'|'f'|'c'>):Nutrition {
+  if([value.p,value.f,value.c].some(amount=>!Number.isFinite(amount)||amount<0)) {
+    throw new Error('栄養素の目標値には0以上の数値を入力してください。')
+  }
+  const kcal=Math.round((value.p*4+value.f*9+value.c*4)*1e6)/1e6
+  if(!Number.isFinite(kcal))throw new Error('目標値が大きすぎます。')
+  return {...value,kcal}
+}
+export const initialGoals: Goals = {training:calorieGoal({p:140,f:60,c:275}),rest:calorieGoal({p:130,f:55,c:220})}
 export const labels = {kcal:'カロリー',p:'タンパク質',f:'脂質',c:'炭水化物'}
 export const units = {kcal:'kcal',p:'g',f:'g',c:'g'}
 export const round = (value:number) => Math.round((value + Number.EPSILON) * 1e6) / 1e6
@@ -66,14 +74,16 @@ export async function reorderFood(id:string, targetId:string, after:boolean) {
 }
 export async function goalAt(date:string) {
   const revisions=await db.goals.where('date').belowOrEqual(date).sortBy('date')
-  return revisions.at(-1)?.goals ?? initialGoals
+  const saved=revisions.at(-1)?.goals ?? initialGoals
+  return {training:calorieGoal(saved.training),rest:calorieGoal(saved.rest)}
 }
 export async function saveGoals(goals:Goals) {
+  const calculated={training:calorieGoal(goals.training),rest:calorieGoal(goals.rest)}
   const date=localDate()
   await db.transaction('rw',db.goals,async()=>{
     const latest=await db.goals.where('date').equals(date).last()
     const order=latest ? Number(latest.id.split('-')[0])+1 : Date.now()
-    await db.goals.add({id:String(order).padStart(16,'0')+'-'+newId(),date,goals})
+    await db.goals.add({id:String(order).padStart(16,'0')+'-'+newId(),date,goals:calculated})
   })
 }
 export const newId = () => Date.now().toString(36)+'-'+Array.from(crypto.getRandomValues(new Uint32Array(2)),n=>n.toString(36)).join('-')

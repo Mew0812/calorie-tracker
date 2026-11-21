@@ -4,7 +4,7 @@ import { liveQuery } from 'dexie'
 import { Activity, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X } from 'lucide-react'
 import { backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, localDate, newId, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, totals, updateDay, validateBackup, zero, type Food, type FoodSet, type Metric, type Settings, type Undo } from './model'
 import './style.css'
-import { nutritionDraft, parseNutrition } from './nutritionInput'
+import { nutritionDraft, parseGoal } from './nutritionInput'
 import FoodList from './FoodList'
 import MealBreakdown from './MealBreakdown'
 import AnalysisScreen from './AnalysisScreen'
@@ -114,7 +114,7 @@ function App() {
       <h1>{settingsView==='goals'?'目標設定':settingsView==='backup'?'バックアップ・復元':'設定'}</h1>
       {settingsView!=='main'&&<button className="link" onClick={()=>setSettingsView('main')}><ChevronLeft size={17}/>設定に戻る</button>}
       {settingsView==='main'&&<section className="card detail"><PanelTitle icon={Gear} title="アプリ設定"/><label>外観<select value={data?.settings?.theme??'system'} onChange={e=>{const theme=e.target.value as Settings['theme'];run(()=>db.settings.put({id:'app',theme}))}}><option value="system">端末の設定に合わせる</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label><div className="detail-row"><button className="link" onClick={()=>run(async()=>{const saved=await goalAt(today);setGoals({training:nutritionDraft(saved.training),rest:nutritionDraft(saved.rest)});setSettingsView('goals')})}>筋トレ日・休養日の目標 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>setSettingsView('backup')}>バックアップ・復元 <ChevronRight size={17}/></button></div></section>}
-      {settingsView==='goals'&&<form onSubmit={(e:FormEvent)=>{e.preventDefault();const training=parseNutrition(goals.training);const rest=parseNutrition(goals.rest);if(training&&rest)exclusive(()=>saveGoals({training,rest}))}}>{(['training','rest'] as const).map(kind=><section className="card detail" key={kind}><h2>{kind==='training'?'筋トレ日':'休養日'}</h2><NutrientFields value={goals[kind]} change={value=>setGoals({...goals,[kind]:value})}/></section>)}<button className="primary" disabled={busy}>目標を保存</button></form>}
+      {settingsView==='goals'&&<form onSubmit={(e:FormEvent)=>{e.preventDefault();const training=parseGoal(goals.training);const rest=parseGoal(goals.rest);if(training&&rest)exclusive(()=>saveGoals({training,rest}))}}>{(['training','rest'] as const).map(kind=><section className="card detail" key={kind}><h2>{kind==='training'?'筋トレ日':'休養日'}</h2><NutrientFields autoCalories value={goals[kind]} change={value=>setGoals({...goals,[kind]:value})}/></section>)}<button className="primary" disabled={busy}>目標を保存</button></form>}
       {settingsView==='backup'&&<section className="card detail">
         <button className="primary" disabled={!data} onClick={()=>run(async()=>{
           if(!data)return

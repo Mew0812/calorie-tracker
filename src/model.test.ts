@@ -53,9 +53,9 @@ describe('保存',()=>{
   it('当日の目標履歴を保存し、既存のスナップショットを保持する',async()=>{
     const today=localDate()
     await add(1,today)
-    await saveGoals({...initialGoals,rest:{...initialGoals.rest,kcal:1234}})
-    await saveGoals({...initialGoals,rest:{...initialGoals.rest,kcal:2345}})
-    expect((await goalAt(today)).rest.kcal).toBe(2345)
+    await saveGoals({...initialGoals,rest:{kcal:1234,p:150,f:50,c:240}})
+    await saveGoals({...initialGoals,rest:{kcal:2345,p:150,f:40,c:220}})
+    expect((await goalAt(today)).rest.kcal).toBe(1840)
     expect((await db.days.get(today))?.goals.rest.kcal).toBe(initialGoals.rest.kcal)
     expect(await db.goals.count()).toBe(2)
   })
@@ -163,5 +163,18 @@ it('ドラッグの前後挿入を保存し、お気に入りのグループを�
   expect(sortFoods(await db.foods.toArray()).map(food=>food.id)).toEqual(['fav','egg','b','c'])
   const before=await snapshot()
   await reorderFood('egg','fav',true)
+  expect(await snapshot()).toEqual(before)
+})
+
+it('旧目標の読み込みは再計算し、既存の日別スナップショットと復元値は保持する',async()=>{
+  const old={training:{kcal:999,p:150,f:50,c:240},rest:{kcal:888,p:150,f:40,c:220}}
+  await db.goals.put({id:'old',date,goals:old})
+  await db.days.put({date,kind:'rest',goals:old,completed:true})
+  expect(await goalAt(date)).toEqual({
+    training:{kcal:2010,p:150,f:50,c:240},rest:{kcal:1840,p:150,f:40,c:220}
+  })
+  const before=await snapshot()
+  await restore(JSON.parse(JSON.stringify(before)))
+  expect((await db.days.get(date))?.goals).toEqual(old)
   expect(await snapshot()).toEqual(before)
 })

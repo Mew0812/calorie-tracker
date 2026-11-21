@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { X, type LucideIcon } from 'lucide-react'
 import { fmt, labels, nutrients, units, type Nutrition } from './model'
-import { maxNutrientInput, type NutritionDraft } from './nutritionInput'
+import { maxNutrientInput, parseGoal, type NutritionDraft } from './nutritionInput'
 
 const balance=(used:number,goal:number,unit:string)=>used>goal?'超過 '+fmt(used-goal)+' '+unit:'残り '+fmt(goal-used)+' '+unit
 const progress=(used:number,goal:number)=>goal>0?Math.min(used/goal,1):Number(used>0)
@@ -24,6 +24,9 @@ export function Modal({title,children,close,sheet=false}:{title:string;children:
   useEffect(()=>{if(node&&!node.open)node.showModal()},[node])
   return <dialog className={sheet?'bottom-sheet':undefined} ref={setNode} onCancel={event=>{event.preventDefault();close()}}><div className="dialog-title"><h2>{title}</h2><button type="button" className="icon" onClick={close} aria-label="閉じる"><X/></button></div>{children}{error&&<p className="danger" role="alert">{error}</p>}</dialog>
 }
-export function NutrientFields({value,change}:{value:NutritionDraft;change:(value:NutritionDraft)=>void}) {
-  return <div className="form-grid">{nutrients.map(key=><label key={key}>{labels[key]}（{units[key]}）<input type="number" min="0" max={maxNutrientInput} step="any" required inputMode="decimal" value={value[key]} onChange={e=>change({...value,[key]:e.target.value})}/></label>)}</div>
+export function NutrientFields({value,change,autoCalories=false}:{value:NutritionDraft;change:(value:NutritionDraft)=>void;autoCalories?:boolean}) {
+  const calculated=autoCalories?parseGoal(value):undefined
+  return <div className="form-grid">{nutrients.map(key=><label key={key}>{labels[key]}（{units[key]}）{autoCalories&&key==='kcal'
+    ?<output className="notice" aria-live="polite">{calculated?fmt(calculated.kcal)+' kcal':'—'}</output>
+    :<input type="number" min="0" max={maxNutrientInput} step="any" required inputMode="decimal" value={value[key]} onChange={e=>change({...value,[key]:e.target.value})}/>}</label>)}</div>
 }
