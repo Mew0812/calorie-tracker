@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
-import {average, backupReminderDue, changeQuantities, db, deleteFood, reorderFood, goalAt, initialGoals, localDate, mapping, periodDates, restore, saveGoals, shift, snapshot, sortFoods, summarize, totals, updateDay, type Food} from './model'
+import {average, backupReminderDue, changeQuantities, db, deleteFood, reorderFood, reorderSet, saveSet, sortSets, goalAt, initialGoals, localDate, mapping, periodDates, restore, saveGoals, shift, snapshot, sortFoods, summarize, totals, updateDay, type Food} from './model'
 
 const date='2024-02-29'
 const egg:Food={id:'egg',name:'卵',unit:'個',weight:50,image:'',order:0,mode:'unit',input:{kcal:70,p:6.3,f:5,c:0.1},nutrition:{kcal:70,p:6.3,f:5,c:0.1},favorite:false,archived:false}
@@ -164,6 +164,36 @@ it('ドラッグの前後挿入を保存し、お気に入りのグループを�
   const before=await snapshot()
   await reorderFood('egg','fav',true)
   expect(await snapshot()).toEqual(before)
+})
+
+it('アーカイブ内の並び替えは通常食品や記録を変えず、復元後も順序を保つ',async()=>{
+  await add(2)
+  await db.foods.bulkAdd([{...egg,id:'a',archived:true,order:1},{...egg,id:'b',order:2},{...egg,id:'c',archived:true,order:3}])
+  const entries=await db.entries.toArray()
+  await reorderFood('c','a',false)
+  db.close();await db.open()
+  expect(sortFoods(await db.foods.toArray()).filter(food=>food.archived).map(food=>food.id)).toEqual(['c','a'])
+  expect(sortFoods(await db.foods.toArray()).filter(food=>!food.archived).map(food=>food.id)).toEqual(['egg','b'])
+  const before=await snapshot()
+  await reorderFood('c','b',false)
+  expect(await snapshot()).toEqual(before)
+  await db.foods.update('c',{archived:false})
+  expect(sortFoods(await db.foods.toArray()).map(food=>food.id)).toEqual(['egg','c','b','a'])
+  expect(await db.entries.toArray()).toEqual(entries)
+})
+
+it('旧形式のセットも並び替え・再接続・編集・JSON復元後に順序を保持する',async()=>{
+  await db.sets.bulkAdd(['a','b','c'].map(id=>({id,name:id,items:[{id:egg.id,count:1}]})))
+  await reorderSet('c','a',false)
+  db.close();await db.open()
+  expect(sortSets(await db.sets.toArray()).map(set=>set.id)).toEqual(['c','a','b'])
+  await saveSet({id:'a',name:'編集済み',items:[{id:egg.id,count:2}]})
+  await saveSet({id:'d',name:'追加',items:[]})
+  expect(sortSets(await db.sets.toArray()).map(set=>set.id)).toEqual(['c','a','b','d'])
+  const before=await snapshot()
+  await restore(JSON.parse(JSON.stringify(before)))
+  expect(await snapshot()).toEqual(before)
+  expect(sortSets(await db.sets.toArray()).map(set=>set.id)).toEqual(['c','a','b','d'])
 })
 
 it('旧目標の読み込みは再計算し、既存の日別スナップショットと復元値は保持する',async()=>{

@@ -6,7 +6,7 @@ export type Nutrition = Record<Metric, number>
 export type Kind = 'training' | 'rest'
 export type Goals = Record<Kind, Nutrition>
 export type Food = {id:string; name:string; unit:string; weight:number; image:string; nutrition:Nutrition; favorite:boolean; archived:boolean; deleted?:boolean; order:number; mode:'unit'|'100g'; input:Nutrition}
-export type FoodSet = {id:string; name:string; items:{id:string; count:number}[]}
+export type FoodSet = {id:string; name:string; items:{id:string; count:number}[]; order?:number}
 export type Entry = {date:string; foodId:string; count:number; name:string; unit:string; nutrition:Nutrition}
 export type Day = {date:string; kind:Kind; goals:Goals; completed:boolean}
 export type Revision = {id:string; date:string; goals:Goals}
@@ -65,13 +65,29 @@ export const sortFoods = (foods:Food[]) => [...foods].sort((a,b)=>Number(b.favor
 export async function reorderFood(id:string, targetId:string, after:boolean) {
   await db.transaction('rw',db.foods,async()=>{
     const food=await db.foods.get(id)
-    if(!food||food.archived||food.deleted)return
-    const group=sortFoods(await db.foods.toArray()).filter(item=>!item.archived&&!item.deleted&&item.favorite===food.favorite)
+    if(!food||food.deleted)return
+    const all=sortFoods(await db.foods.toArray()).filter(item=>!item.deleted&&item.favorite===food.favorite)
+    const group=all.filter(item=>item.archived===food.archived)
     const target=group.find(item=>item.id===targetId)
     if(!target||target.id===id)return
     const ordered=group.filter(item=>item.id!==id)
     ordered.splice(ordered.findIndex(item=>item.id===targetId)+(after?1:0),0,food)
-    await db.foods.bulkPut(ordered.map((item,order)=>({...item,order})))
+    let index=0
+    await db.foods.bulkPut(all.map((item,order)=>({
+      ...(item.archived===food.archived?ordered[index++]:item),order
+    })))
+  })
+}
+export const sortSets=(sets:FoodSet[])=>sets.map((item,index)=>({item,index}))
+  .sort((a,b)=>(a.item.order??a.index)-(b.item.order??b.index)||a.index-b.index).map(row=>row.item)
+export async function reorderSet(id:string,targetId:string,after:boolean) {
+  await db.transaction('rw',db.sets,async()=>{
+    const all=sortSets(await db.sets.toArray())
+    const item=all.find(row=>row.id===id)
+    if(!item||id===targetId||!all.some(row=>row.id===targetId))return
+    const ordered=all.filter(row=>row.id!==id)
+    ordered.splice(ordered.findIndex(row=>row.id===targetId)+(after?1:0),0,item)
+    await db.sets.bulkPut(ordered.map((row,order)=>({...row,order})))
   })
 }
 export async function goalAt(date:string) {
@@ -109,7 +125,10 @@ export async function saveSet(set:FoodSet) {
   await db.transaction('rw',db.foods,db.sets,async()=>{
     const foods=await db.foods.bulkGet(set.items.map(item=>item.id))
     if(foods.some(food=>!food||food.deleted)) throw new Error('セットに削除済みの食品が含まれています。')
-    await db.sets.put(set)
+    const all=await db.sets.toArray()
+    const existing=all.find(item=>item.id===set.id)
+    const order=existing?.order??(existing?all.indexOf(existing):set.order??Math.max(-1,...all.map((item,index)=>item.order??index))+1)
+    await db.sets.put({...set,order})
   })
 }
 
@@ -187,7 +206,7 @@ export function validateBackup(value:unknown):Backup {
     !list(value.foods,r=>str(r.id)&&str(r.name)&&str(r.unit)&&num(r.weight)&&imageValid(r.image)&&nutrition(r.nutrition)&&nutrition(r.input)&&typeof r.favorite==='boolean'&&typeof r.archived==='boolean'&&(r.deleted===undefined||typeof r.deleted==='boolean')&&integer(r.order)&&(r.mode==='unit'||(r.mode==='100g'&&r.weight>0)),r=>r.id) ||
     !list(value.days,r=>dateValid(r.date)&&(r.kind==='rest'||r.kind==='training')&&goalPair(r.goals)&&typeof r.completed==='boolean',r=>r.date) ||
     !list(value.entries,r=>dateValid(r.date)&&str(r.foodId)&&str(r.name)&&str(r.unit)&&integer(r.count)&&r.count>0&&nutrition(r.nutrition),r=>JSON.stringify([r.date,r.foodId])) ||
-    !list(value.sets,r=>str(r.id)&&str(r.name)&&list(r.items,x=>str(x.id)&&integer(x.count)&&x.count>0,x=>x.id),r=>r.id) ||
+    !list(value.sets,r=>str(r.id)&&str(r.name)&&(r.order===undefined||integer(r.order))&&list(r.items,x=>str(x.id)&&integer(x.count)&&x.count>0,x=>x.id),r=>r.id) ||
     !list(value.goals,r=>str(r.id)&&dateValid(r.date)&&goalPair(r.goals),r=>r.id) ||
     !(value.settings===undefined || validSettings(value.settings)) ||
     (value.version===2 && value.reportHistory!==undefined && !validReportHistory(value.reportHistory))) throw new Error('バックアップの形式またはバージョンが無効です。')

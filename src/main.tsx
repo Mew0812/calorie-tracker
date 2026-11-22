@@ -2,10 +2,11 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { liveQuery } from 'dexie'
 import { Activity, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X } from 'lucide-react'
-import { backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, localDate, newId, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, totals, updateDay, validateBackup, zero, type Food, type FoodSet, type Metric, type Settings, type Undo } from './model'
+import { backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, localDate, newId, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, sortSets, totals, updateDay, validateBackup, zero, type Food, type FoodSet, type Metric, type Settings, type Undo } from './model'
 import './style.css'
 import { nutritionDraft, parseGoal } from './nutritionInput'
 import FoodList from './FoodList'
+import SetList from './SetList'
 import MealBreakdown from './MealBreakdown'
 import CloudBackupPanel from './CloudBackupPanel'
 import { useCloudBackup } from './useCloudBackup'
@@ -69,7 +70,7 @@ function App() {
   const day=data?.days.find(item=>item.date===date)
   const goal=(day?.goals??applicable)[day?.kind??'rest']
   const used=totals(entries)
-  const sets=data?.sets??[]
+  const sets=sortSets(data?.sets??[])
   const calendar=periodDates(month,true)
   const navigate=(next:Tab)=>{setTab(next);window.scrollTo(0,0)}
   const reminder=data&&dismissedReminder!==today&&backupReminderDue(today)&&(data.foods.length>0||data.days.length>0)
@@ -112,7 +113,7 @@ function App() {
     {tab==='食品'&&<>
       <div className="section-title"><h1>食品管理</h1>{foodView!=='archive'&&<button className="primary" onClick={()=>foodView==='sets'?setSetEdit({id:newId(),name:'',items:[]}):setFoodEdit(blankFood())}><Plus size={18}/>新規作成</button>}</div>
       <div className="segment"><button aria-pressed={foodView==='active'} onClick={()=>setFoodView('active')}>食品</button><button aria-pressed={foodView==='sets'} onClick={()=>setFoodView('sets')}>セット</button><button aria-pressed={foodView==='archive'} onClick={()=>setFoodView('archive')}>アーカイブ</button></div>
-      {foodView==='sets'?<section className="card detail">{sets.length?sets.map(item=><div className="detail-row" key={item.id}><span>{item.name} · {item.items.length}種類</span><button onClick={()=>setSetEdit(item)}>編集</button></div>):<p className="muted">食品セットはありません。</p>}</section>:<section className="card detail"><FoodList foods={foodView==='archive'?foods.filter(food=>food.archived):active} edit={setFoodEdit} remove={food=>{setNote('');setFoodDelete(food)}} run={run}/></section>}
+      {foodView==='sets'?<section className="card detail"><SetList sets={sets} edit={setSetEdit} run={run}/></section>:<section className="card detail"><FoodList foods={foodView==='archive'?foods.filter(food=>food.archived):active} edit={setFoodEdit} remove={food=>{setNote('');setFoodDelete(food)}} run={run}/></section>}
     </>}
     {tab==='設定'&&<>
       <h1>{settingsView==='goals'?'目標設定':settingsView==='backup'?'バックアップ・復元':'設定'}</h1>
