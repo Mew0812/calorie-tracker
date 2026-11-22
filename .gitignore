@@ -22,3 +22,7 @@ id_rsa
 id_ed25519
 mydiet-*.json
 
+
+# Browser test output
+test-results/
+playwright-report/

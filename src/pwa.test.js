@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { expect, it, vi } from 'vitest'
+import { pwaFiles, pwaVersion } from '../scripts/pwaAssets.mjs'
 
 const root='https://mydiet.example/'
 const asset='./assets/build.js'
@@ -23,6 +24,7 @@ function worker(fetch) {
   const source=readFileSync(new URL('../public/sw.js',import.meta.url),'utf8')
     .replace('__BUILD_VERSION__','test')
     .replace('__BUILD_ASSETS__',asset)
+    .replace("['__PWA_FILES__']",JSON.stringify(pwaFiles.map(name=>'./'+name)))
   runInNewContext(source,{
     self:{registration:{scope:root},addEventListener:(name,handler)=>handlers.set(name,handler)},
     Request, URL, caches, fetch
@@ -45,6 +47,17 @@ it('新キャッシュを準備し、起動時に旧キャッシュのみ削除�
   fetch.mockRejectedValue(new Error('offline'))
   expect(await (await dispatch('fetch',{url:root,method:'GET',mode:'navigate'})).text()).toBe(html)
   expect(await (await dispatch('fetch',{url:new URL(asset,root).href,method:'GET'})).text()).toBe('app')
+  for(const name of pwaFiles)expect(await (await dispatch('fetch',{url:new URL(name,root).href,method:'GET'})).text()).toBe('app')
+})
+
+it('アイコン画像だけの変更でもキャッシュのビルド識別子を更新する',()=>{
+  const files=new Map(pwaFiles.map(name=>[name,readFileSync(new URL('../public/'+name,import.meta.url))]))
+  const original=pwaVersion(html,'worker',files)
+  for(const name of pwaFiles) {
+    const changed=new Map(files);changed.set(name,Buffer.concat([files.get(name),Buffer.from('changed')]))
+    expect(pwaVersion(html,'worker',changed)).not.toBe(original)
+  }
+  expect(pwaVersion(html,'worker',files)).toBe(original)
 })
 
 it('別ビルドのHTMLや取得に失敗したアセットで更新を完了しない',async()=>{

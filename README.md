@@ -51,3 +51,9 @@ Vercel の「Add New」→「Project」で GitHub リポジトリをインポー
 
 `src/model.ts` が日付、計算、データアクセス、バックアップの処理を担当します。UI は `src/main.tsx`、テーマとレイアウトは `src/style.css` にあります。
 
+## アプリアイコン
+
+設定の「アプリアイコン」で、最大5書記素の文字・数字・記号や写真からPNGを作成できます。画像の保存と正式なPWAアイコンの公開は別の操作です。[作成・正式アイコンへの反映手順](docs/app-icons.md)を参照してください。
+
+ブラウザーテストは `npm run build` の後、`npm run test:e2e` で実行します。既定はEdge、環境変数 `MYDIET_BROWSER=webkit` でiPhone相当のWebKitを利用します（対応ブラウザーのインストールが必要です）。
+

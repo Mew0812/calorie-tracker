@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import tailwind from '@tailwindcss/vite'
-import { createHash } from 'node:crypto'
+import { pwaFiles, pwaVersion } from './scripts/pwaAssets.mjs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
@@ -17,10 +17,12 @@ export default defineConfig({
       ])
       const assets=[...html.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g)].map(match=>match[1])
       if(!assets.length) throw new Error('PWA shell assets are missing')
-      const version=createHash('sha256').update(html).update(worker).digest('hex').slice(0,20)
+      const files=new Map(await Promise.all(pwaFiles.map(async name=>[name,await readFile(resolve(root,name))])))
+      const version=pwaVersion(html,worker,files)
       await writeFile(resolve(root,'sw.js'),worker
         .replace("'__BUILD_VERSION__'",JSON.stringify(version))
-        .replace("['__BUILD_ASSETS__']",JSON.stringify(assets)))
+        .replace("['__BUILD_ASSETS__']",JSON.stringify(assets))
+        .replace("['__PWA_FILES__']",JSON.stringify(pwaFiles.map(name=>'./'+name))))
     }
   }]
 })

@@ -1,3 +1,4 @@
+import AppIcon from './AppIcon'
 import { useEffect, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { liveQuery } from 'dexie'
@@ -44,7 +45,7 @@ function App() {
   const [pendingBackup,setPendingBackup]=useState<ReturnType<typeof validateBackup>>()
   const [goals,setGoals]=useState(()=>({training:nutritionDraft(initialGoals.training),rest:nutritionDraft(initialGoals.rest)}))
   const [applicable,setApplicable]=useState(initialGoals)
-  const [settingsView,setSettingsView]=useState<'main'|'goals'|'backup'>('main')
+  const [settingsView,setSettingsView]=useState<'main'|'goals'|'backup'|'icon'>('main')
   const [busy,setBusy]=useState(false)
   const fail=(error:unknown)=>setNote(error instanceof Error?error.message:String(error))
   useEffect(()=>{
@@ -129,9 +130,10 @@ function App() {
       {foodView==='sets'?<section className="card detail"><SetList sets={sets} edit={setSetEdit} run={run}/></section>:<section className="card detail"><FoodList foods={foodView==='archive'?foods.filter(food=>food.archived):active} edit={setFoodEdit} remove={food=>{setNote('');setFoodDelete(food)}} run={run}/></section>}
     </>}
     {tab==='設定'&&<>
-      <h1>{settingsView==='goals'?'目標設定':settingsView==='backup'?'バックアップ・復元':'設定'}</h1>
+      <h1>{settingsView==='icon'?'アプリアイコン':settingsView==='goals'?'目標設定':settingsView==='backup'?'バックアップ・復元':'設定'}</h1>
       {settingsView!=='main'&&<button className="link" onClick={()=>setSettingsView('main')}><ChevronLeft size={17}/>設定に戻る</button>}
-      {settingsView==='main'&&<section className="card detail"><PanelTitle icon={Gear} title="アプリ設定"/><label>外観<select value={data?.settings?.theme??'system'} onChange={e=>{const theme=e.target.value as Settings['theme'];run(()=>db.settings.put({id:'app',theme}))}}><option value="system">端末の設定に合わせる</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label><div className="detail-row"><button className="link" onClick={()=>run(async()=>{const saved=await goalAt(today);setGoals({training:nutritionDraft(saved.training),rest:nutritionDraft(saved.rest)});setSettingsView('goals')})}>筋トレ日・休養日の目標 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>setSettingsView('backup')}>バックアップ・復元 <ChevronRight size={17}/></button></div></section>}
+      {settingsView==='main'&&<section className="card detail"><PanelTitle icon={Gear} title="アプリ設定"/><div className="detail-row"><button className="link" onClick={()=>setSettingsView('icon')}>アプリアイコン <ChevronRight size={17}/></button></div><label>外観<select value={data?.settings?.theme??'system'} onChange={e=>{const theme=e.target.value as Settings['theme'];run(()=>db.settings.put({id:'app',theme}))}}><option value="system">端末の設定に合わせる</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label><div className="detail-row"><button className="link" onClick={()=>run(async()=>{const saved=await goalAt(today);setGoals({training:nutritionDraft(saved.training),rest:nutritionDraft(saved.rest)});setSettingsView('goals')})}>筋トレ日・休養日の目標 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>setSettingsView('backup')}>バックアップ・復元 <ChevronRight size={17}/></button></div></section>}
+      {settingsView==='icon'&&<AppIcon/>}
       {settingsView==='goals'&&<form onSubmit={(e:FormEvent)=>{e.preventDefault();const training=parseGoal(goals.training);const rest=parseGoal(goals.rest);if(training&&rest)exclusive(()=>saveGoals({training,rest}))}}>{(['training','rest'] as const).map(kind=><section className="card detail" key={kind}><h2>{kind==='training'?'筋トレ日':'休養日'}</h2><NutrientFields autoCalories value={goals[kind]} change={value=>setGoals({...goals,[kind]:value})}/></section>)}<button className="primary" disabled={busy}>目標を保存</button></form>}
       {settingsView==='backup'&&<section className="card detail">
         <button className="primary" disabled={!data} onClick={()=>run(async()=>{

@@ -2,7 +2,8 @@ const root = self.registration.scope
 const prefix = 'mydiet:' + root
 const cacheName = prefix + ':' + '__BUILD_VERSION__'
 const assets = ['__BUILD_ASSETS__']
-const assetUrls = new Set(assets.map(path => new URL(path, root).href))
+const pwaFiles = ['__PWA_FILES__']
+const assetUrls = new Set([...assets,...pwaFiles].map(path => new URL(path, root).href))
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
