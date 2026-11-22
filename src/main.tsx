@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { liveQuery } from 'dexie'
 import { Activity, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X } from 'lucide-react'
-import { backupReminderDue, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, localDate, newId, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, sortSets, totals, updateDay, validateBackup, zero, type Food, type FoodSet, type Metric, type Settings, type Undo } from './model'
+import { backupReminderDue, refreshDayStates, recordState, changeQuantities, dateObject, db, deleteFood, fmt, goalAt, initialGoals, localDate, newId, periodDates, restore, saveGoals, saveSet, shift, snapshot, sortFoods, sortSets, totals, updateDay, validateBackup, zero, type Food, type FoodSet, type Metric, type Settings, type Undo } from './model'
+import { formatQuantity } from './quantity'
 import './style.css'
 import { nutritionDraft, parseGoal } from './nutritionInput'
 import FoodList from './FoodList'
@@ -25,8 +26,10 @@ function App() {
   const cloud=useCloudBackup(!!data)
   const [dismissedReminder,setDismissedReminder]=useState('')
   const [today,setToday]=useState(localDate)
-  const [date,setDate]=useState(today)
+  const [calendarDate,setCalendarDate]=useState(today)
   const [tab,setTab]=useState<Tab>('記録')
+  const [calendarEditing,setCalendarEditing]=useState(false)
+  const date=tab==='記録'?today:calendarDate
   const [month,setMonth]=useState(today.slice(0,7)+'-01')
   const [period,setPeriod]=useState(today)
   const [monthly,setMonthly]=useState(false)
@@ -49,10 +52,14 @@ function App() {
     return ()=>sub.unsubscribe()
   },[])
   useEffect(()=>{
-    const check=()=>{const current=localDate();if(current!==today){setToday(current);setDate(previous=>previous===today?current:previous)}}
+    const check=()=>{const current=localDate();setToday(current);void refreshDayStates(current).catch(fail)}
+    check()
     const timer=window.setInterval(check,15000)
+    const midnight=window.setTimeout(check,Math.max(1,new Date(today+'T00:00:00+09:00').getTime()+86400000-Date.now()+20))
     document.addEventListener('visibilitychange',check)
-    return ()=>{window.clearInterval(timer);document.removeEventListener('visibilitychange',check)}
+    window.addEventListener('focus',check)
+    window.addEventListener('pageshow',check)
+    return ()=>{window.clearInterval(timer);window.clearTimeout(midnight);document.removeEventListener('visibilitychange',check);window.removeEventListener('focus',check);window.removeEventListener('pageshow',check)}
   },[today])
   useEffect(()=>{
     const sub=liveQuery(()=>goalAt(date)).subscribe({next:setApplicable,error:fail});return ()=>sub.unsubscribe()
@@ -67,47 +74,54 @@ function App() {
   const foods=sortFoods((data?.foods??[]).filter(food=>!food.deleted))
   const active=foods.filter(food=>!food.archived)
   const entries=(data?.entries??[]).filter(entry=>entry.date===date)
-  const day=data?.days.find(item=>item.date===date)
+  const savedDay=data?.days.find(item=>item.date===date)
+  const day=savedDay?recordState(savedDay,today):undefined
   const goal=(day?.goals??applicable)[day?.kind??'rest']
   const used=totals(entries)
   const sets=sortSets(data?.sets??[])
   const calendar=periodDates(month,true)
-  const navigate=(next:Tab)=>{setTab(next);window.scrollTo(0,0)}
+  const navigate=(next:Tab)=>{setToday(localDate());setCalendarEditing(false);setMealOpen(false);setTab(next);window.scrollTo(0,0)}
   const reminder=data&&dismissedReminder!==today&&backupReminderDue(today)&&(data.foods.length>0||data.days.length>0)
-  const dayControls=<div className="date-row"><button className="icon" aria-label="前の日" onClick={()=>setDate(shift(date,-1))}><ChevronLeft size={19}/></button><label className="date-picker"><span>{date===today?'今日・':''}{dayLabel(date)}</span><input type="date" aria-label="記録日" value={date} onChange={e=>{if(e.target.value)setDate(e.target.value)}}/></label><button className="icon" aria-label="次の日" onClick={()=>setDate(shift(date,1))}><ChevronRight size={19}/></button></div>
-  const detail=<><NutritionCard used={used} goal={goal}/><section className="card detail"><PanelTitle icon={ClipboardList} title="記録の詳細"/><p>{status(day)} · {day?.kind==='training'?'筋トレ日':'休養日'} · 目標との差 {day?signed(used.kcal-goal.kcal)+' kcal':'—'}</p>{entries.map(entry=><div className="detail-row" key={entry.foodId}><span>{entry.name}</span><strong>{entry.count} {entry.unit}</strong></div>)}{!entries.length&&<p className="muted">食品の記録はありません。</p>}</section></>
+  const recordEditor=<>
+      <div className="day-type"><button aria-pressed={day?.kind!=='training'}  onClick={()=>run(()=>updateDay(date,{kind:'rest'}))}>休養日</button><button aria-pressed={day?.kind==='training'}  onClick={()=>run(()=>updateDay(date,{kind:'training'}))}><Dumbbell size={15}/>筋トレ日</button></div>
+      <NutritionCard used={used} goal={goal} open={()=>setMealOpen(true)}/>
+      <section className="block"><PanelTitle icon={Layers} title="食品セット"/>
+        {sets.length>0&&<div className="scroll-row">{sets.map(item=><button className="set card" disabled={busy||!item.items.length||item.items.some(row=>!active.some(food=>food.id===row.id))} key={item.id} onClick={()=>exclusive(async()=>{const result=await changeQuantities(date,item.items,'set');setUndo(result)})}><span className="tile-icon"><Layers size={19}/></span><span><strong>{item.name}</strong><small>{item.items.length}種類</small></span><Plus size={18}/></button>)}
+        </div>}
+        {undo?.date===date&&<button className="link undo" disabled={busy} onClick={()=>exclusive(async()=>{await changeQuantities(date,undo.items.map(row=>({...row,count:-row.count})),'undo');setUndo(undefined)})}>直前のセット追加を取り消す</button>}
+      </section>
+      <section className="block"><PanelTitle icon={Utensils} title="食品一覧"/>
+      <div className="food-grid">{active.map(food=>{
+        const recorded=entries.find(entry=>entry.foodId===food.id)
+        const count=recorded?.count??0
+        const FoodInfo=date===today?'button':'div'
+        const name=recorded?.name??food.name
+        const nutrition=recorded?.nutrition??food.nutrition
+        const unit=recorded?.unit??food.unit
+        return <article className="card food" key={food.id}><FoodInfo className="food-info" onClick={date===today?()=>setFoodEdit(food):undefined}>{food.image?<img className="thumb" src={food.image} alt=""/>:<span className="thumb"><Utensils size={23}/></span>}<span><strong>{name} {food.favorite&&<Star size={13} className="star" fill="currentColor"/>}</strong><small>{fmt(nutrition.kcal)} kcal / {unit}</small></span></FoodInfo><div className="stepper"><button aria-label={name+'を1減らす'} disabled={!count} onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:-1}]))}><Minus size={19}/></button><output aria-label={name+'の数量'}>{count}</output><button aria-label={name+'を1増やす'}  onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:1}]))}><Plus size={19}/></button></div></article>
+      })}</div>
+      {!active.length&&<div className="empty card"><span className="tile-icon"><Utensils size={22}/></span><h3>よく食べる食品を登録</h3><p>下部メニューの「食品」から登録できます。</p></div>}
+      {entries.filter(entry=>!active.some(food=>food.id===entry.foodId)).map(entry=><div className="card archived-entry" key={entry.foodId}><span>{entry.name} · {formatQuantity(entry.unit,entry.count)}</span><button  onClick={()=>run(()=>changeQuantities(date,[{id:entry.foodId,count:-1}]))} aria-label={entry.name+'を1減らす'}><Minus size={18}/></button>{date<today&&<button aria-label={entry.name+'を1増やす'} onClick={()=>run(()=>changeQuantities(date,[{id:entry.foodId,count:1}]))}><Plus size={18}/></button>}</div>)}
+      </section>
+  </>
+  const detail=<><NutritionCard used={used} goal={goal}/><section className="card detail"><PanelTitle icon={ClipboardList} title="記録の詳細"/><p>{status(day)} · {day?.kind==='training'?'筋トレ日':'休養日'} · 目標との差 {day?signed(used.kcal-goal.kcal)+' kcal':'—'}</p>{entries.map(entry=><div className="detail-row" key={entry.foodId}><span>{entry.name}</span><strong>{formatQuantity(entry.unit,entry.count)}</strong></div>)}{!entries.length&&<p className="muted">食品の記録はありません。</p>}</section></>
 
   return <ErrorNotice.Provider value={note}>
-    <header className="top"><div className="top-inner"><button className="brand" onClick={()=>{setDate(today);navigate('記録')}}><span><Activity size={21}/></span>MyDiet</button><span className="top-date"><CalendarDays size={15}/>{dayLabel(today)}</span></div></header>
+    <header className="top"><div className="top-inner"><button className="brand" onClick={()=>{setCalendarDate(today);navigate('記録')}}><span><Activity size={21}/></span>MyDiet</button><span className="top-date"><CalendarDays size={15}/>{dayLabel(today)}</span></div></header>
     <main>
     {reminder&&<section className="card detail" aria-label="月末のバックアップ">
       <p role="status">月末です。食事記録をバックアップしましょう。</p>
       <div className="row"><button className="primary" onClick={()=>{setSettingsView('backup');setDismissedReminder(today);navigate('設定')}}>バックアップを開く</button><button onClick={()=>setDismissedReminder(today)}>あとで</button></div>
     </section>}
     {tab==='記録'&&<>
-      <div className="hero"><div><div className="eyebrow"><span/>{status(day)}</div><h1>{date===today?'今日の食事記録':'日別の食事記録'}</h1></div>{dayControls}</div>
-      <div className="day-type"><button aria-pressed={day?.kind!=='training'} disabled={day?.completed} onClick={()=>run(()=>updateDay(date,{kind:'rest'}))}>休養日</button><button aria-pressed={day?.kind==='training'} disabled={day?.completed} onClick={()=>run(()=>updateDay(date,{kind:'training'}))}><Dumbbell size={15}/>筋トレ日</button></div>
-      <NutritionCard used={used} goal={goal} open={()=>setMealOpen(true)}/>
-      <section className="block"><PanelTitle icon={Layers} title="食品セット"/>
-        {sets.length>0&&<div className="scroll-row">{sets.map(item=><button className="set card" disabled={day?.completed||busy||!item.items.length||item.items.some(row=>!active.some(food=>food.id===row.id))} key={item.id} onClick={()=>exclusive(async()=>{const result=await changeQuantities(date,item.items,'set');setUndo(result)})}><span className="tile-icon"><Layers size={19}/></span><span><strong>{item.name}</strong><small>{item.items.length}種類</small></span><Plus size={18}/></button>)}
-        </div>}
-        {undo?.date===date&&<button className="link undo" disabled={busy||day?.completed} onClick={()=>exclusive(async()=>{await changeQuantities(date,undo.items.map(row=>({...row,count:-row.count})),'undo');setUndo(undefined)})}>直前のセット追加を取り消す</button>}
-      </section>
-      <section className="block"><PanelTitle icon={Utensils} title="食品一覧"/>
-      <div className="food-grid">{active.map(food=>{
-        const count=entries.find(entry=>entry.foodId===food.id)?.count??0
-        return <article className="card food" key={food.id}><button className="food-info" onClick={()=>setFoodEdit(food)}>{food.image?<img className="thumb" src={food.image} alt=""/>:<span className="thumb"><Utensils size={23}/></span>}<span><strong>{food.name} {food.favorite&&<Star size={13} className="star" fill="currentColor"/>}</strong><small>{fmt(food.nutrition.kcal)} kcal / {food.unit}</small></span></button><div className="stepper"><button aria-label={food.name+'を1減らす'} disabled={!count||day?.completed} onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:-1}]))}><Minus size={19}/></button><output aria-label={food.name+'の数量'}>{count}</output><button aria-label={food.name+'を1増やす'} disabled={day?.completed} onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:1}]))}><Plus size={19}/></button></div></article>
-      })}</div>
-      {!active.length&&<div className="empty card"><span className="tile-icon"><Utensils size={22}/></span><h3>よく食べる食品を登録</h3><p>下部メニューの「食品」から登録できます。</p></div>}
-      {entries.filter(entry=>foods.some(food=>food.id===entry.foodId&&food.archived)).map(entry=><div className="card archived-entry" key={entry.foodId}><span>{entry.name}（アーカイブ済み） × {entry.count}</span><button disabled={day?.completed} onClick={()=>run(()=>changeQuantities(date,[{id:entry.foodId,count:-1}]))} aria-label={entry.name+'を1減らす'}><Minus size={18}/></button></div>)}
-      </section>
-      <div className="finish"><button className="primary wide" disabled={!data||busy} onClick={()=>exclusive(async()=>{await updateDay(date,{completed:!day?.completed});setUndo(undefined)})}>{day?.completed?<ClipboardList size={19}/>:<Check size={20}/>} {day?.completed?'記録を再編集する':date===today?'今日の記録を完了する':'この日の記録を完了する'}</button></div>
+      <div className="hero"><div className="eyebrow"><span/>{status(day)}</div><h1>今日の食事記録</h1><p className="muted">{dayLabel(today)}</p></div>
+      {recordEditor}
     </>}
     {tab==='カレンダー'&&<>
       <h1>カレンダー</h1>
-      <section className="card calendar"><div className="calendar-head"><button className="icon" aria-label="前の月" onClick={()=>setMonth(shift(month,-1).slice(0,7)+'-01')}><ChevronLeft/></button><strong>{dateObject(month).toLocaleDateString('ja-JP',{year:'numeric',month:'long'})}</strong><button className="icon" aria-label="次の月" onClick={()=>setMonth(shift(calendar.at(-1)!,1))}><ChevronRight/></button></div>
-      <div className="calendar-grid">{['月','火','水','木','金','土','日'].map(value=><span key={value}>{value}</span>)}{Array.from({length:(dateObject(month).getDay()+6)%7},(_,i)=><span key={'blank'+i}/>)}{calendar.map(value=>{const record=data?.days.find(x=>x.date===value);return <button key={value} aria-pressed={date===value} aria-label={dayLabel(value)+' '+status(record)} onClick={()=>setDate(value)}>{Number(value.slice(-2))}<i>{record?.completed?<Check size={13}/>:record?'●':''}</i></button>})}</div></section>
-      <div className="section-title"><h2>{dayLabel(date)}</h2><button className="link" onClick={()=>navigate('記録')}>記録を開く <ChevronRight size={16}/></button></div>{detail}
+      <section className="card calendar"><div className="calendar-head"><button className="icon" aria-label="前の月" onClick={()=>setMonth(shift(month,-1).slice(0,7)+'-01')}><ChevronLeft/></button><strong>{dateObject(month).toLocaleDateString('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'long'})}</strong><button className="icon" aria-label="次の月" onClick={()=>setMonth(shift(calendar.at(-1)!,1))}><ChevronRight/></button></div>
+      <div className="calendar-grid">{['月','火','水','木','金','土','日'].map(value=><span key={value}>{value}</span>)}{Array.from({length:(new Date(month+'T00:00:00Z').getUTCDay()+6)%7},(_,i)=><span key={'blank'+i}/>)}{calendar.map(value=>{const saved=data?.days.find(x=>x.date===value);const record=saved?recordState(saved,today):undefined;return <button key={value} aria-pressed={date===value} aria-label={dayLabel(value)+' '+status(record)} disabled={value>today} onClick={()=>{setCalendarDate(value);setCalendarEditing(false);setMealOpen(false)}}>{Number(value.slice(-2))}<i>{record?.completed?<Check size={13}/>:record?'●':''}</i></button>})}</div></section>
+      <div className="section-title"><h2>{dayLabel(date)}</h2><button className="link" disabled={date>today} onClick={()=>setCalendarEditing(value=>!value)}>{calendarEditing?'詳細に戻る':'この日の記録を編集'}</button></div>{calendarEditing&&date<=today?recordEditor:detail}
     </>}
     {tab==='分析'&&<AnalysisScreen {...{today,data,period,setPeriod,monthly,setMonthly,metric,setMetric}}/>}
     {tab==='食品'&&<>

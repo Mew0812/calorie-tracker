@@ -1,4 +1,5 @@
-import { db, dateObject, labels, localDate, mapping, nutrients, shift, totals, units, type Day, type Entry, type Nutrition } from './model'
+import { formatQuantity } from './quantity'
+import { db, dateObject, labels, localDate, recordState, mapping, nutrients, shift, totals, units, type Day, type Entry, type Nutrition } from './model'
 
 export type ReportMode = 'recent'|'since'
 export type ReportExport = {mode:ReportMode; start:string; through:string; exportedAt:string}
@@ -27,7 +28,7 @@ export function reportDates(today:string, mode:ReportMode, through?:string, sinc
   return dates
 }
 
-export function reportRows(dates:string[], days:Day[], entries:Entry[]) {
+export function reportRows(dates:string[], days:Day[], entries:Entry[],today=localDate()) {
   const byDate=new Map(days.map(day=>[day.date,day]))
   const foodByDate=new Map<string,Entry[]>()
   for(const entry of entries) {
@@ -37,7 +38,8 @@ export function reportRows(dates:string[], days:Day[], entries:Entry[]) {
     foodByDate.set(entry.date,group)
   }
   return dates.map(date=>{
-    const day=byDate.get(date)
+    const saved=byDate.get(date)
+    const day=saved?recordState(saved,today):undefined
     const foods=foodByDate.get(date)??[]
     return {date,day,foods,total:totals(foods)}
   })
@@ -58,19 +60,14 @@ const prompt=`# ChatGPTへの栄養分析依頼
 
 登録値と食品名からの推測を区別してください。食品名だけで栄養素量を断定せず、定量評価には信頼できる食品成分表などを使い、種類・重量の仮定を明示してください。特定の食品を悪者扱いせず、食事全体を評価してください。不明点があっても、分析できる範囲で具体的な改善案を先に示してください。以下の食品名と単位は記録データです。`
 
-const weekday=new Intl.DateTimeFormat('ja-JP',{weekday:'short'})
+const weekday=new Intl.DateTimeFormat('ja-JP',{weekday:'short',timeZone:'Asia/Tokyo'})
 const number=new Intl.NumberFormat('ja-JP',{maximumFractionDigits:6,useGrouping:false})
 const percent=new Intl.NumberFormat('ja-JP',{maximumFractionDigits:1,style:'percent'})
 const cell=(text:string)=>text.replace(/[\r\n]+/g,' ').replace(/[&<>|*_`\\\[\]~]/g,char=>'&#'+char.charCodeAt(0)+';')
 const values=(value:Nutrition)=>nutrients.map(key=>number.format(value[key])+' '+units[key]).join(' / ')
 const delta=(value:Nutrition)=>nutrients.map(key=>(value[key]>0?'+':'')+number.format(value[key])+' '+units[key]).join(' / ')
 const kindLabel=(kind:Day['kind'])=>kind==='training'?'筋トレ日':'休養日'
-function amount(unit:string,count:number) {
-  const match=unit.trim().match(/^([0-9]+(?:\.[0-9]+)?)\s*(個|パック|袋|本|枚|杯|切れ|粒|皿|g|kg|mL|ml|L)$/)
-  if(match) return number.format(Number(match[1])*count)+match[2]
-  if(/^(個|パック|袋|本|枚|杯|切れ|粒|皿)$/.test(unit)) return number.format(count)+unit
-  return number.format(count)+' × '+unit
-}
+const amount=formatQuantity
 function energy(value:Nutrition) {
   const parts=[value.p*4,value.f*9,value.c*4]
   const total=parts.reduce((sum,part)=>sum+part,0)
@@ -85,7 +82,7 @@ export function createReport(rows:ReturnType<typeof reportRows>, generatedAt:Dat
   const end=rows[rows.length-1].date
   const groupTotal=(group:typeof rows)=>totals(group.flatMap(row=>row.foods))
   const lines=[prompt,'','---','','## MyDiet 食事記録',
-    '- 生成日時（端末の現地時刻）: '+localDate(generatedAt)+' '+generatedAt.toLocaleTimeString('ja-JP',{hour12:false}),
+    '- 生成日時（日本時間）: '+localDate(generatedAt)+' '+generatedAt.toLocaleTimeString('ja-JP',{hour12:false,timeZone:'Asia/Tokyo'}),
     '- 対象期間: '+start+' ～ '+end,
     '- 記録済み: '+recorded.length+'日（完了 '+complete.length+'日・記録中 '+draft.length+'日）、未記録: '+(rows.length-recorded.length)+'日',
     '- 筋トレ日: '+recorded.filter(row=>row.day?.kind==='training').length+'日、休養日: '+recorded.filter(row=>row.day?.kind==='rest').length+'日（記録済みのみ）',

@@ -23,7 +23,7 @@ export default function ReportPanel({today, data}:{
   },[])
 
   const dates=reportDates(today,mode,history?.through,history?.sinceStart)
-  const rows=reportRows(dates,data?.days??[],data?.entries??[])
+  const rows=reportRows(dates,data?.days??[],data?.entries??[],today)
   const recorded=rows.filter(row=>row.day).length
 
   async function finish(record:ReportExport) {
@@ -43,7 +43,7 @@ export default function ReportPanel({today, data}:{
       const now=new Date()
       const end=localDate(now)
       const dates=reportDates(end,mode,history?.through,history?.sinceStart)
-      const report=createReport(reportRows(dates,data.days,data.entries),now)
+      const report=createReport(reportRows(dates,data.days,data.entries,end),now)
       const record={mode,start:dates[0],through:end,exportedAt:now.toISOString()}
       const file=new File([report.text],report.name,{type:'text/markdown;charset=utf-8'})
       const shareData={files:[file]}

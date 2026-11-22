@@ -12,7 +12,7 @@ beforeEach(async()=>{
 describe('計算と日付',()=>{
   it('100gからの換算と丸め',()=>expect(mapping(key=>({kcal:120,p:10,f:3.2,c:8}[key]*1.5))).toEqual({kcal:180,p:15,f:4.8,c:12}))
   it('うるう年、月境界、月曜始まりを処理する',()=>{
-    expect(localDate(new Date(2024,1,29,23,59))).toBe(date)
+    expect(localDate(new Date('2024-02-29T23:59:00+09:00'))).toBe(date)
     expect(shift(date,1)).toBe('2024-03-01')
     expect(periodDates(date,true)).toHaveLength(29)
     expect(periodDates(date,false)[0]).toBe('2024-02-26')
@@ -39,10 +39,10 @@ describe('保存',()=>{
     await changeQuantities(date,items.map(x=>({...x,count:-x.count})),'undo')
     expect((await db.entries.toArray()).map(x=>x.count)).toEqual([2])
   })
-  it('完了・再編集・再完了と栄養成分スナップショットを保持する',async()=>{
+  it('過去日は完了状態のまま編集し、栄養成分スナップショットを保持する',async()=>{
     await add(1)
     await updateDay(date,{completed:true})
-    await expect(add(1)).rejects.toThrow()
+    await add(1)
     await updateDay(date,{completed:false})
     await db.foods.update('egg',{nutrition:{...egg.nutrition,kcal:120}})
     await add(1)
@@ -62,8 +62,8 @@ describe('保存',()=>{
   it('未記録・記録中の日を平均に含めない',async()=>{
     await add(2)
     await updateDay(date,{completed:true})
-    await add(1,shift(date,1))
-    const rows=summarize(await db.days.toArray(),await db.entries.toArray(),periodDates(date,false).concat(shift(date,4)))
+    await add(1,localDate())
+    const rows=summarize(await db.days.toArray(),await db.entries.toArray(),periodDates(date,false).concat(localDate()))
     expect(rows).toHaveLength(2)
     expect(average(rows)?.kcal).toBe(140)
   })
@@ -149,8 +149,8 @@ it('マスター変更後も同じ日のセット追加と取り消しに元の�
   await changeQuantities(date,undo.items.map(item=>({...item,count:-item.count})),'undo')
   expect(await db.entries.get([date,egg.id])).toEqual(original)
   await deleteFood(egg.id)
-  await expect(add(1)).rejects.toThrow()
-  expect(await db.entries.get([date,egg.id])).toEqual(original)
+  await add(1)
+  expect(await db.entries.get([date,egg.id])).toEqual({...original,count:3})
 })
 
 it('ドラッグの前後挿入を保存し、お気に入りのグループを越えて移動しない',async()=>{

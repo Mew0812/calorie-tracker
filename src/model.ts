@@ -34,13 +34,13 @@ export const round = (value:number) => Math.round((value + Number.EPSILON) * 1e6
 export const fmt = (value:number) => new Intl.NumberFormat('ja-JP',{maximumFractionDigits:1}).format(value)
 export const mapping = (fn:(key:Metric)=>number) => Object.fromEntries(nutrients.map(key=>[key,round(fn(key))])) as Nutrition
 export const totals = (entries:Entry[]) => mapping(key=>entries.reduce((sum,entry)=>sum + entry.count * entry.nutrition[key],0))
-export const localDate = (date = new Date()) => [date.getFullYear(),date.getMonth()+1,date.getDate()].map(n=>String(n).padStart(2,'0')).join('-')
-export const dateObject = (date:string) => new Date(date+'T12:00:00')
-export function shift(date:string, offset:number) { const value=dateObject(date); value.setDate(value.getDate()+offset); return localDate(value) }
+export const localDate = (date = new Date()) => new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit'}).format(date)
+export const dateObject = (date:string) => new Date(date+'T12:00:00+09:00')
+export function shift(date:string, offset:number) { const value=new Date(date+'T00:00:00Z'); value.setUTCDate(value.getUTCDate()+offset); return value.toISOString().slice(0,10) }
 export function periodDates(date:string, month:boolean) {
-  const value=dateObject(date)
-  const start=month ? date.slice(0,7)+'-01' : shift(date,-((value.getDay()+6)%7))
-  const count=month ? new Date(value.getFullYear(),value.getMonth()+1,0).getDate() : 7
+  const value=new Date(date+'T00:00:00Z')
+  const start=month ? date.slice(0,7)+'-01' : shift(date,-((value.getUTCDay()+6)%7))
+  const count=month ? new Date(Date.UTC(value.getUTCFullYear(),value.getUTCMonth()+1,0)).getUTCDate() : 7
   return Array.from({length:count},(_,i)=>shift(start,i))
 }
 class Database extends Dexie {
@@ -61,6 +61,18 @@ class Database extends Dexie {
   }
 }
 export const db = new Database()
+export async function bumpAnalysisGeneration() {
+  const row=await db.cloudLocal.get('analysis-generation')
+  const generation=typeof row?.value==='number'?row.value:0
+  if(!Number.isSafeInteger(generation+1))throw new Error('分析用の変更世代が上限を超えました。')
+  await db.cloudLocal.put({key:'analysis-generation',value:generation+1})
+  const states=await db.cloudLocal.where('key').startsWith('analysis:diet:').toArray()
+  for(const row of states) {
+    if(typeof row.value!=='object'||!row.value)continue
+    await db.cloudLocal.put({key:row.key,value:{...row.value,
+      confirmedAt:undefined,weekEnd:undefined,needsResync:true}})
+  }
+}
 export const sortFoods = (foods:Food[]) => [...foods].sort((a,b)=>Number(b.favorite)-Number(a.favorite)||a.order-b.order)
 export async function reorderFood(id:string, targetId:string, after:boolean) {
   await db.transaction('rw',db.foods,async()=>{
@@ -108,8 +120,25 @@ export const newId = () => Date.now().toString(36)+'-'+Array.from(crypto.getRand
 async function getDay(date:string):Promise<Day> {
   return await db.days.get(date) ?? {date,kind:'rest',goals:await goalAt(date),completed:false}
 }
+export const recordState=(day:Day,today=localDate()):Day=>({...day,completed:day.date<today})
+function assertEditableDate(date:string) {
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(dateObject(date).getTime())||localDate(dateObject(date))!==date)throw new Error('日付が正しくありません。')
+  if(date>localDate())throw new Error('未来日の記録は編集できません。')
+}
+export async function refreshDayStates(today=localDate()) {
+  await db.transaction('rw',db.days,db.cloudLocal,async()=>{
+    const changed=(await db.days.toArray()).filter(day=>day.completed!==(day.date<today))
+    if(!changed.length)return
+    await db.days.bulkPut(changed.map(day=>recordState(day,today)))
+    await bumpAnalysisGeneration()
+  })
+}
 export async function updateDay(date:string, patch:Partial<Pick<Day,'kind'|'completed'>>) {
-  await db.transaction('rw',db.days,db.goals,async()=>db.days.put({...await getDay(date),...patch}))
+  assertEditableDate(date)
+  await db.transaction('rw',db.days,db.goals,db.cloudLocal,async()=>{
+    await db.days.put(recordState({...await getDay(date),...patch}))
+    await bumpAnalysisGeneration()
+  })
 }
 export async function deleteFood(id:string) {
   await db.transaction('rw',db.foods,db.sets,async()=>{
@@ -134,16 +163,16 @@ export async function saveSet(set:FoodSet) {
 
 export type Undo = {date:string; items:{id:string; count:number}[]}
 export async function changeQuantities(date:string, changes:FoodSet['items'], mode:'normal'|'set'|'undo'='normal'):Promise<Undo> {
-  return db.transaction('rw',db.days,db.entries,db.foods,db.goals,async()=>{
+  assertEditableDate(date)
+  return db.transaction('rw',db.days,db.entries,db.foods,db.goals,db.cloudLocal,async()=>{
     const day=await getDay(date)
-    if(day.completed) throw new Error('再編集を開始してください。')
     const items:Undo['items']=[]
     for(const {id,count} of changes) {
       const previous=await db.entries.get([date,id])
       const next=Math.max(0,(previous?.count??0)+count)
       if(!Number.isSafeInteger(next)) throw new Error('数量の上限を超えています。')
       const food=mode==='set'||next>(previous?.count??0) ? await db.foods.get(id) : undefined
-      if((mode==='set'||next>(previous?.count??0))&&(!food||food.archived||food.deleted)) {
+      if((mode==='set'||next>(previous?.count??0))&&!(previous&&date<localDate())&&(!food||food.archived||food.deleted)) {
         throw new Error('利用できない食品が含まれています。')
       }
       if(next===(previous?.count??0)) continue
@@ -155,14 +184,18 @@ export async function changeQuantities(date:string, changes:FoodSet['items'], mo
       }
       items.push({id,count:next-(previous?.count??0)})
     }
-    if(items.length) await db.days.put({...day,completed:false})
+    if(items.length) {
+      await db.days.put(recordState(day))
+      await bumpAnalysisGeneration()
+    }
     return {date,items}
   })
 }
 export function summarize(days:Day[], entries:Entry[], dates:string[]) {
+  const today=localDate()
   return dates.flatMap(date=>{
     const day=days.find(item=>item.date===date)
-    return day ? [{...day,total:totals(entries.filter(entry=>entry.date===date))}] : []
+    return day ? [{...recordState(day,today),total:totals(entries.filter(entry=>entry.date===date))}] : []
   })
 }
 export const average = (rows:ReturnType<typeof summarize>) => {
@@ -227,7 +260,7 @@ export async function restore(value:unknown) {
     for(const table of [db.foods,db.sets,db.days,db.entries,db.goals,db.settings]) await table.clear()
     await db.foods.bulkAdd(foods)
     await db.sets.bulkAdd(sets)
-    await db.days.bulkAdd(data.days)
+    await db.days.bulkAdd(data.days.map(day=>recordState(day)))
     await db.entries.bulkAdd(data.entries)
     await db.goals.bulkAdd(data.goals)
     if(data.settings) await db.settings.add(data.settings)
@@ -235,6 +268,7 @@ export async function restore(value:unknown) {
       await db.reportHistory.clear()
       if(data.reportHistory) await db.reportHistory.add(data.reportHistory)
     }
+    await bumpAnalysisGeneration()
   })
 }
 

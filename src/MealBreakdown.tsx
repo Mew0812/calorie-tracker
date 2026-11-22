@@ -2,6 +2,7 @@ import { dayLabel } from './display'
 import { useState } from 'react'
 import { fmt, labels, nutrients, totals, units, type Entry, type Metric } from './model'
 import { mealRanking } from './mealRanking'
+import { formatQuantity } from './quantity'
 import { Modal } from './ui'
 
 export default function MealBreakdown({date,entries,close}:{date:string;entries:Entry[];close:()=>void}) {
@@ -16,7 +17,7 @@ export default function MealBreakdown({date,entries,close}:{date:string;entries:
     {foods.length>0&&<p className="muted meal-comparison">比較バーは、この日の最多食品を100%として表示します。</p>}
     {foods.length?foods.map(({entry,value},index)=>{
       return <article className="detail meal-item" key={entry.foodId}>
-        <div className="meal-ranking-head"><div><strong>{index+1}. {entry.name}</strong><small>{entry.count} × {entry.unit}</small></div>
+        <div className="meal-ranking-head"><div><strong>{index+1}. {entry.name}</strong><small>{formatQuantity(entry.unit,entry.count)}</small></div>
           <strong className="meal-selected-value">{fmt(value[metric])} {units[metric]}</strong>
         </div>
         <div className="track" role="img" aria-label={labels[metric]+'の相対量 '+fmt(maximum>0?value[metric]/maximum*100:0)+'%'}><i style={{width:(maximum>0?value[metric]/maximum*100:0)+'%'}}/></div>
