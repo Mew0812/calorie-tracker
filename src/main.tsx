@@ -86,7 +86,7 @@ function App() {
       <div className="day-type"><button aria-pressed={day?.kind!=='training'}  onClick={()=>run(()=>updateDay(date,{kind:'rest'}))}>休養日</button><button aria-pressed={day?.kind==='training'}  onClick={()=>run(()=>updateDay(date,{kind:'training'}))}><Dumbbell size={15}/>筋トレ日</button></div>
       <NutritionCard used={used} goal={goal} open={()=>setMealOpen(true)}/>
       <section className="block"><PanelTitle icon={Layers} title="食品セット"/>
-        {sets.length>0&&<div className="scroll-row">{sets.map(item=><button className="set card" disabled={busy||!item.items.length||item.items.some(row=>!active.some(food=>food.id===row.id))} key={item.id} onClick={()=>exclusive(async()=>{const result=await changeQuantities(date,item.items,'set');setUndo(result)})}><span className="tile-icon"><Layers size={19}/></span><span><strong>{item.name}</strong><small>{item.items.length}種類</small></span><Plus size={18}/></button>)}
+        {sets.length>0&&<div className="scroll-row">{sets.map(item=><button className="set card" disabled={busy||!item.items.length||item.items.some(row=>!foods.some(food=>food.id===row.id))} key={item.id} onClick={()=>exclusive(async()=>{const result=await changeQuantities(date,item.items,'set');setUndo(result)})}><span className="tile-icon"><Layers size={19}/></span><span><strong>{item.name}</strong><small>{item.items.length}種類</small></span><Plus size={18}/></button>)}
         </div>}
         {undo?.date===date&&<button className="link undo" disabled={busy} onClick={()=>exclusive(async()=>{await changeQuantities(date,undo.items.map(row=>({...row,count:-row.count})),'undo');setUndo(undefined)})}>直前のセット追加を取り消す</button>}
       </section>
@@ -101,7 +101,7 @@ function App() {
         return <article className="card food" key={food.id}><FoodInfo className="food-info" onClick={date===today?()=>setFoodEdit(food):undefined}>{food.image?<img className="thumb" src={food.image} alt=""/>:<span className="thumb"><Utensils size={23}/></span>}<span><strong>{name} {food.favorite&&<Star size={13} className="star" fill="currentColor"/>}</strong><small>{fmt(nutrition.kcal)} kcal / {unit}</small></span></FoodInfo><div className="stepper"><button aria-label={name+'を1減らす'} disabled={!count} onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:-1}]))}><Minus size={19}/></button><output aria-label={name+'の数量'}>{count}</output><button aria-label={name+'を1増やす'}  onClick={()=>run(()=>changeQuantities(date,[{id:food.id,count:1}]))}><Plus size={19}/></button></div></article>
       })}</div>
       {!active.length&&<div className="empty card"><span className="tile-icon"><Utensils size={22}/></span><h3>よく食べる食品を登録</h3><p>下部メニューの「食品」から登録できます。</p></div>}
-      {entries.filter(entry=>!active.some(food=>food.id===entry.foodId)).map(entry=><div className="card archived-entry" key={entry.foodId}><span>{entry.name} · {formatQuantity(entry.unit,entry.count)}</span><button  onClick={()=>run(()=>changeQuantities(date,[{id:entry.foodId,count:-1}]))} aria-label={entry.name+'を1減らす'}><Minus size={18}/></button>{date<today&&<button aria-label={entry.name+'を1増やす'} onClick={()=>run(()=>changeQuantities(date,[{id:entry.foodId,count:1}]))}><Plus size={18}/></button>}</div>)}
+      {entries.filter(entry=>!active.some(food=>food.id===entry.foodId)).map(entry=><div className="card archived-entry" key={entry.foodId}><span>{entry.name} · {formatQuantity(entry.unit,entry.count)}</span><button  onClick={()=>run(()=>changeQuantities(date,[{id:entry.foodId,count:-1}]))} aria-label={entry.name+'を1減らす'}><Minus size={18}/></button>{(date<today||foods.some(food=>food.id===entry.foodId&&food.archived))&&<button aria-label={entry.name+'を1増やす'} onClick={()=>run(()=>changeQuantities(date,[{id:entry.foodId,count:1}]))}><Plus size={18}/></button>}</div>)}
       </section>
   </>
   const detail=<><NutritionCard used={used} goal={goal}/><section className="card detail"><PanelTitle icon={ClipboardList} title="記録の詳細"/><p>{status(day)} · {day?.kind==='training'?'筋トレ日':'休養日'} · 目標との差 {day?signed(used.kcal-goal.kcal)+' kcal':'—'}</p>{entries.map(entry=><div className="detail-row" key={entry.foodId}><span>{entry.name}</span><strong>{formatQuantity(entry.unit,entry.count)}</strong></div>)}{!entries.length&&<p className="muted">食品の記録はありません。</p>}</section></>
@@ -114,7 +114,6 @@ function App() {
       <div className="row"><button className="primary" onClick={()=>{setSettingsView('backup');setDismissedReminder(today);navigate('設定')}}>バックアップを開く</button><button onClick={()=>setDismissedReminder(today)}>あとで</button></div>
     </section>}
     {tab==='記録'&&<>
-      <div className="hero"><div className="eyebrow"><span/>{status(day)}</div><h1>今日の食事記録</h1><p className="muted">{dayLabel(today)}</p></div>
       {recordEditor}
     </>}
     {tab==='カレンダー'&&<>

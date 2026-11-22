@@ -172,7 +172,8 @@ export async function changeQuantities(date:string, changes:FoodSet['items'], mo
       const next=Math.max(0,(previous?.count??0)+count)
       if(!Number.isSafeInteger(next)) throw new Error('数量の上限を超えています。')
       const food=mode==='set'||next>(previous?.count??0) ? await db.foods.get(id) : undefined
-      if((mode==='set'||next>(previous?.count??0))&&!(previous&&date<localDate())&&(!food||food.archived||food.deleted)) {
+      const archivedAllowed=food?.archived&&(mode==='set'||!!previous)
+      if((mode==='set'||next>(previous?.count??0))&&!(previous&&date<localDate())&&(!food||food.deleted||(food.archived&&!archivedAllowed))) {
         throw new Error('利用できない食品が含まれています。')
       }
       if(next===(previous?.count??0)) continue

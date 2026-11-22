@@ -39,11 +39,11 @@ export function FoodEditor({food,save,close,fail}:{food:Food;save:(food:Food)=>v
 export function SetEditor({item,foods,save,remove,close}:{item:FoodSet;foods:Food[];save:(item:FoodSet)=>void;remove:()=>void;close:()=>void}) {
   const [draft,set]=useState(item)
   const [selected,select]=useState('')
-  const available=foods.filter(food=>!food.archived&&!draft.items.some(row=>row.id===food.id))
+  const available=foods.filter(food=>!food.deleted&&!draft.items.some(row=>row.id===food.id))
   return <Modal title={item.name?'食品セットを編集':'食品セットを作成'} close={close}><form onSubmit={e=>{e.preventDefault();if(draft.name.trim()&&draft.items.length)save({...draft,name:draft.name.trim()})}}>
     <label>セット名<input required maxLength={80} value={draft.name} onChange={e=>set({...draft,name:e.target.value})}/></label>
-    {draft.items.map(row=><div className="set-row" key={row.id}><span>{foods.find(food=>food.id===row.id)?.name}{foods.find(food=>food.id===row.id)?.archived?'（アーカイブ済み）':''}</span><input aria-label="数量" type="number" inputMode="numeric" required min="1" max="9999" value={row.count} onChange={e=>set({...draft,items:draft.items.map(x=>x.id===row.id?{...x,count:Number(e.target.value)}:x)})}/><button type="button" aria-label="食品を外す" onClick={()=>set({...draft,items:draft.items.filter(x=>x.id!==row.id)})}><X size={17}/></button></div>)}
-    <div className="row"><select aria-label="追加する食品" value={selected} onChange={e=>select(e.target.value)}><option value="">食品を選ぶ</option>{available.map(food=><option key={food.id} value={food.id}>{food.name}</option>)}</select><button type="button" disabled={!selected} onClick={()=>{set({...draft,items:[...draft.items,{id:selected,count:1}]});select('')}}>追加</button></div>
+    {draft.items.map(row=><div className="set-row" key={row.id}><span>{foods.find(food=>food.id===row.id)?.name}{foods.find(food=>food.id===row.id)?.archived&&<small>（アーカイブ済み）</small>}</span><input aria-label="数量" type="number" inputMode="numeric" required min="1" max="9999" value={row.count} onChange={e=>set({...draft,items:draft.items.map(x=>x.id===row.id?{...x,count:Number(e.target.value)}:x)})}/><button type="button" aria-label="食品を外す" onClick={()=>set({...draft,items:draft.items.filter(x=>x.id!==row.id)})}><X size={17}/></button></div>)}
+    <div className="row"><select aria-label="追加する食品" value={selected} onChange={e=>select(e.target.value)}><option value="">食品を選ぶ</option>{available.map(food=><option key={food.id} value={food.id}>{food.name}{food.archived?'（アーカイブ済み）':''}</option>)}</select><button type="button" disabled={!selected} onClick={()=>{set({...draft,items:[...draft.items,{id:selected,count:1}]});select('')}}>追加</button></div>
     <button className="primary wide" disabled={!draft.items.length}>保存する</button>
     {item.name&&<button className="wide danger" type="button" onClick={remove}>セットを削除</button>}
   </form></Modal>
