@@ -83,3 +83,5 @@
 .food-sets>.section-title{min-width:0;gap:8px}
 .food-sets>.section-title h2{flex:none;white-space:nowrap}
 .food-sets .set-undo{min-width:0;min-height:44px;padding:4px;font-size:12px;line-height:1.4;text-align:right;justify-content:flex-end}
+.create-fab{position:fixed;z-index:3;right:max(16px,env(safe-area-inset-right));bottom:calc(76px + env(safe-area-inset-bottom));width:60px;height:60px;border-radius:18px;padding:0;box-shadow:0 6px 20px #173a7940}
+main.with-create-fab{padding-bottom:calc(158px + env(safe-area-inset-bottom))}

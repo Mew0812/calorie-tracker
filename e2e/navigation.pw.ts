@@ -2,7 +2,7 @@ import { expect,test,type Page } from '@playwright/test'
 const nav=(page:Page,name:string)=>page.getByRole('navigation').getByRole('button',{name,exact:true})
 async function registerFood(page:Page) {
   await nav(page,'食品').click()
-  await page.getByRole('button',{name:'新規作成',exact:true}).click()
+  await page.getByRole('button',{name:'食品を新規作成',exact:true}).click()
   await page.getByRole('textbox',{name:'食品名',exact:true}).fill('検証の卵')
   await page.getByRole('textbox',{name:'単位',exact:true}).fill('1個')
   for(const [label,value] of [['カロリー（kcal）','75'],['タンパク質（g）','6'],['脂質（g）','5'],['炭水化物（g）','1']])await page.getByRole('spinbutton',{name:label,exact:true}).fill(value)
@@ -22,7 +22,7 @@ test.beforeEach(async({page})=>{
 test('compact archived-food sets, single-flight addition, header undo and four even tabs',async({page},testInfo)=>{
   await registerFood(page)
   await page.getByRole('main').getByRole('button',{name:'セット',exact:true}).click()
-  await page.getByRole('button',{name:'新規作成',exact:true}).click()
+  await page.getByRole('button',{name:'食品セットを新規作成',exact:true}).click()
   await page.getByRole('textbox',{name:'セット名',exact:true}).fill('朝食セット')
   await page.getByRole('combobox',{name:'追加する食品',exact:true}).selectOption({label:'検証の卵'})
   await page.getByRole('button',{name:'追加',exact:true}).click()

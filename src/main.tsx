@@ -1,5 +1,7 @@
+import { useSettingsNavigation } from './settingsNavigation'
+import { useEdgeBack } from './edgeBack'
 import AppIcon from './AppIcon'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { liveQuery } from 'dexie'
 import { Activity, CalendarDays, ChartNoAxesColumnIncreasing, Check, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Layers, Minus, Plus, Settings as Gear, Star, Trash2, Utensils, X } from 'lucide-react'
@@ -44,34 +46,21 @@ function App() {
   const [pendingBackup,setPendingBackup]=useState<ReturnType<typeof validateBackup>>()
   const [goals,setGoals]=useState(()=>({training:nutritionDraft(initialGoals.training),rest:nutritionDraft(initialGoals.rest)}))
   const [applicable,setApplicable]=useState(initialGoals)
-  const [settingsView,setSettingsView]=useState<'main'|'goals'|'backup'|'icon'|'history'>('main')
-  const date=tab==='設定'&&settingsView==='history'?calendarDate:today
-  const historyOpen=useRef(false)
+  const goalBaseline=useRef(JSON.stringify(goals))
+  const iconDirty=useRef(false)
+  const markIconDirty=useCallback((dirty:boolean)=>{iconDirty.current=dirty},[])
   const operationBusy=useRef(false)
   const [busy,setBusy]=useState(false)
   const fail=(error:unknown)=>setNote(error instanceof Error?error.message:String(error))
-  useEffect(()=>{
-    if(window.history.state?.mydietView==='history'){
-      const state={...window.history.state};delete state.mydietView;window.history.replaceState(state,'',window.location.href)
-    }
-    const onBack=()=>{
-      const next=window.history.state?.mydietView==='history'
-      if(next||historyOpen.current){
-        historyOpen.current=next;setTab('設定');setSettingsView(next?'history':'main')
-        setCalendarEditing(false);setMealOpen(false)
-      }
-    }
-    window.addEventListener('popstate',onBack)
-    return ()=>window.removeEventListener('popstate',onBack)
-  },[])
-  function openHistory(){
-    if(!historyOpen.current)window.history.pushState({...window.history.state,mydietView:'history'},'',window.location.href)
-    historyOpen.current=true;setSettingsView('history');setCalendarEditing(false);setMealOpen(false);window.scrollTo(0,0)
-  }
-  function closeHistory(){
-    if(historyOpen.current&&window.history.state?.mydietView==='history'){window.history.back();return}
-    historyOpen.current=false;setSettingsView('main');setCalendarEditing(false);setMealOpen(false)
-  }
+  const blocked=()=>busy||!!foodEdit||!!setEdit||!!foodDelete||!!pendingBackup||mealOpen||
+    document.activeElement?.matches('input,textarea,select,[contenteditable="true"]')||
+    settingsView==='backup'&&(!!document.querySelector('.cloud-backup fieldset:disabled')||Array.from(document.querySelectorAll<HTMLInputElement|HTMLSelectElement>('.cloud-backup input,.cloud-backup select')).some(field=>!!field.value))||
+    settingsView==='icon'&&iconDirty.current||settingsView==='goals'&&JSON.stringify(goals)!==goalBaseline.current
+  const {view:settingsView,open:openSettings,back:backSettings,leave:leaveSettings}=useSettingsNavigation(blocked,()=>{
+    setTab('設定');setCalendarEditing(false);setMealOpen(false);iconDirty.current=false;window.scrollTo(0,0)
+  })
+  const date=tab==='設定'&&settingsView==='history'?calendarDate:today
+  useEdgeBack(tab==='設定'&&settingsView!=='main',blocked,()=>backSettings())
   useEffect(()=>{
     const sub=liveQuery(snapshot).subscribe({next:setData,error:fail})
     return ()=>sub.unsubscribe()
@@ -107,10 +96,7 @@ function App() {
   const sets=sortSets(data?.sets??[])
   const calendar=periodDates(month,true)
   const navigate=(next:Tab)=>{
-    if(historyOpen.current){
-      const state={...window.history.state};delete state.mydietView;window.history.replaceState(state,'',window.location.href)
-      historyOpen.current=false;setSettingsView('main')
-    }
+    leaveSettings()
     setToday(localDate());setCalendarEditing(false);setMealOpen(false);setTab(next);window.scrollTo(0,0)
   }
   const reminder=data&&dismissedReminder!==today&&backupReminderDue(today)&&(data.foods.length>0||data.days.length>0)
@@ -139,33 +125,33 @@ function App() {
 
   return <ErrorNotice.Provider value={note}>
     <header className="top"><div className="top-inner"><button className="brand" onClick={()=>{setCalendarDate(today);navigate('記録')}}><span><Activity size={21}/></span>MyDiet</button><span className="top-date"><CalendarDays size={15}/>{dayLabel(today)}</span></div></header>
-    <main>
+    <main className={tab==='食品'&&foodView!=='archive'?'with-create-fab':undefined}>
     {reminder&&<section className="card detail" aria-label="月末のバックアップ">
       <p role="status">月末です。食事記録をバックアップしましょう。</p>
-      <div className="row"><button className="primary" onClick={()=>{setSettingsView('backup');setDismissedReminder(today);navigate('設定')}}>バックアップを開く</button><button onClick={()=>setDismissedReminder(today)}>あとで</button></div>
+      <div className="row"><button className="primary" onClick={()=>{setDismissedReminder(today);openSettings('backup')}}>バックアップを開く</button><button onClick={()=>setDismissedReminder(today)}>あとで</button></div>
     </section>}
     {tab==='記録'&&<>
       {recordEditor}
     </>}
     {tab==='設定'&&settingsView==='history'&&<>
       <h1>履歴</h1>
-      <button className="link" onClick={closeHistory}><ChevronLeft size={17}/>設定に戻る</button>
+      <button className="link" disabled={busy} onClick={()=>backSettings(true)}><ChevronLeft size={17}/>設定に戻る</button>
       <section className="card calendar"><div className="calendar-head"><button className="icon" aria-label="前の月" onClick={()=>setMonth(shift(month,-1).slice(0,7)+'-01')}><ChevronLeft/></button><strong>{dateObject(month).toLocaleDateString('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'long'})}</strong><button className="icon" aria-label="次の月" onClick={()=>setMonth(shift(calendar.at(-1)!,1))}><ChevronRight/></button></div>
       <div className="calendar-grid">{['月','火','水','木','金','土','日'].map(value=><span key={value}>{value}</span>)}{Array.from({length:(new Date(month+'T00:00:00Z').getUTCDay()+6)%7},(_,i)=><span key={'blank'+i}/>)}{calendar.map(value=>{const saved=data?.days.find(x=>x.date===value);const record=saved?recordState(saved,today):undefined;return <button key={value} aria-pressed={date===value} aria-label={dayLabel(value)+' '+status(record)} disabled={value>today} onClick={()=>{setCalendarDate(value);setCalendarEditing(false);setMealOpen(false)}}>{Number(value.slice(-2))}<i>{record?.completed?<Check size={13}/>:record?'●':''}</i></button>})}</div></section>
       <div className="section-title"><h2>{dayLabel(date)}</h2><button className="link" disabled={date>today} onClick={()=>setCalendarEditing(value=>!value)}>{calendarEditing?'詳細に戻る':'この日の記録を編集'}</button></div>{calendarEditing&&date<=today?recordEditor:detail}
     </>}
     {tab==='分析'&&<AnalysisScreen {...{today,data,period,setPeriod,monthly,setMonthly,metric,setMetric}}/>}
     {tab==='食品'&&<>
-      <div className="section-title"><h1>食品管理</h1>{foodView!=='archive'&&<button className="primary" onClick={()=>foodView==='sets'?setSetEdit({id:newId(),name:'',items:[]}):setFoodEdit(blankFood())}><Plus size={18}/>新規作成</button>}</div>
+      <div className="section-title"><h1>食品管理</h1></div>
       <div className="segment"><button aria-pressed={foodView==='active'} onClick={()=>setFoodView('active')}>食品</button><button aria-pressed={foodView==='sets'} onClick={()=>setFoodView('sets')}>セット</button><button aria-pressed={foodView==='archive'} onClick={()=>setFoodView('archive')}>アーカイブ</button></div>
       {foodView==='sets'?<section className="card detail"><SetList sets={sets} edit={setSetEdit} run={run}/></section>:<section className="card detail"><FoodList foods={foodView==='archive'?foods.filter(food=>food.archived):active} edit={setFoodEdit} remove={food=>{setNote('');setFoodDelete(food)}} run={run}/></section>}
     </>}
     {tab==='設定'&&settingsView!=='history'&&<>
       <h1>{settingsView==='icon'?'アプリアイコン':settingsView==='goals'?'目標設定':settingsView==='backup'?'バックアップ・復元':'設定'}</h1>
-      {settingsView!=='main'&&<button className="link" onClick={()=>setSettingsView('main')}><ChevronLeft size={17}/>設定に戻る</button>}
-      {settingsView==='main'&&<section className="card detail"><PanelTitle icon={Gear} title="アプリ設定"/><div className="detail-row"><button className="link" onClick={()=>setSettingsView('icon')}>アプリアイコン <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>run(async()=>{const saved=await goalAt(today);setGoals({training:nutritionDraft(saved.training),rest:nutritionDraft(saved.rest)});setSettingsView('goals')})}>筋トレ日・休養日の目標 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>setSettingsView('backup')}>バックアップ・復元 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={openHistory}>履歴 <ChevronRight size={17}/></button></div><label>外観<select value={data?.settings?.theme??'system'} onChange={e=>{const theme=e.target.value as Settings['theme'];run(()=>db.settings.put({id:'app',theme}))}}><option value="system">端末の設定に合わせる</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label></section>}
-      {settingsView==='icon'&&<AppIcon/>}
-      {settingsView==='goals'&&<form onSubmit={(e:FormEvent)=>{e.preventDefault();const training=parseGoal(goals.training);const rest=parseGoal(goals.rest);if(training&&rest)exclusive(()=>saveGoals({training,rest}))}}>{(['training','rest'] as const).map(kind=><section className="card detail" key={kind}><h2>{kind==='training'?'筋トレ日':'休養日'}</h2><NutrientFields autoCalories value={goals[kind]} change={value=>setGoals({...goals,[kind]:value})}/></section>)}<button className="primary" disabled={busy}>目標を保存</button></form>}
+      {settingsView!=='main'&&<button className="link" disabled={busy} onClick={()=>backSettings(true)}><ChevronLeft size={17}/>設定に戻る</button>}
+      {settingsView==='main'&&<section className="card detail"><PanelTitle icon={Gear} title="アプリ設定"/><div className="detail-row"><button className="link" onClick={()=>openSettings('icon')}>アプリアイコン <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>run(async()=>{const saved=await goalAt(today);const next={training:nutritionDraft(saved.training),rest:nutritionDraft(saved.rest)};goalBaseline.current=JSON.stringify(next);setGoals(next);openSettings('goals')})}>筋トレ日・休養日の目標 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>openSettings('backup')}>バックアップ・復元 <ChevronRight size={17}/></button></div><div className="detail-row"><button className="link" onClick={()=>openSettings('history')}>履歴 <ChevronRight size={17}/></button></div><label>外観<select value={data?.settings?.theme??'system'} onChange={e=>{const theme=e.target.value as Settings['theme'];run(()=>db.settings.put({id:'app',theme}))}}><option value="system">端末の設定に合わせる</option><option value="light">ライト</option><option value="dark">ダーク</option></select></label></section>}
+      {settingsView==='icon'&&<AppIcon onDirty={markIconDirty}/>}
+      {settingsView==='goals'&&<form onSubmit={(e:FormEvent)=>{e.preventDefault();const training=parseGoal(goals.training);const rest=parseGoal(goals.rest);if(training&&rest)exclusive(async()=>{await saveGoals({training,rest});goalBaseline.current=JSON.stringify(goals)})}}>{(['training','rest'] as const).map(kind=><section className="card detail" key={kind}><h2>{kind==='training'?'筋トレ日':'休養日'}</h2><NutrientFields autoCalories value={goals[kind]} change={value=>setGoals({...goals,[kind]:value})}/></section>)}<button className="primary" disabled={busy}>目標を保存</button></form>}
       {settingsView==='backup'&&<section className="card detail">
         <button className="primary" disabled={!data} onClick={()=>run(async()=>{
           if(!data)return
@@ -192,6 +178,7 @@ function App() {
       }}/>}
     </>}
     </main>
+    {tab==='食品'&&foodView!=='archive'&&!foodEdit&&!setEdit&&<button className="primary create-fab" aria-label={foodView==='sets'?'食品セットを新規作成':'食品を新規作成'} onClick={()=>foodView==='sets'?setSetEdit({id:newId(),name:'',items:[]}):setFoodEdit(blankFood())}><Plus size={32} aria-hidden="true"/></button>}
     <nav className="nav" aria-label="メインメニュー"><div>{tabs.map(([name,Icon])=><button key={name} aria-current={tab===name?'page':undefined} onClick={()=>navigate(name)}><Icon size={21}/><span>{name}</span></button>)}</div></nav>
     {mealOpen&&<MealBreakdown date={date} entries={entries} close={()=>setMealOpen(false)}/>}
     {foodEdit&&<FoodEditor food={foodEdit} close={()=>setFoodEdit(undefined)} fail={fail} save={food=>exclusive(async()=>{

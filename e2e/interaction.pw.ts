@@ -1,0 +1,96 @@
+import { expect,test,type Page } from '@playwright/test'
+const nav=(page:Page,name:string)=>page.getByRole('navigation').getByRole('button',{name,exact:true})
+async function swipe(page:Page,dx=110,dy=4,x=5,selector='main') {
+  await page.evaluate(({dx,dy,x,selector})=>{
+    const target=document.querySelector(selector)!
+    const send=(name:string,clientX:number,clientY:number)=>{
+      const event=new Event(name,{bubbles:true,cancelable:true}),touch={clientX,clientY}
+      Object.defineProperty(event,'touches',{value:name==='touchend'?[]:[touch]})
+      Object.defineProperty(event,'changedTouches',{value:[touch]})
+      target.dispatchEvent(event)
+    }
+    send('touchstart',x,200);send('touchmove',x+dx/2,200+dy/2);send('touchmove',x+dx,200+dy);send('touchend',x+dx,200+dy)
+  },{dx,dy,x,selector})
+}
+test('floating creation button respects food, set and archive tabs and stays above navigation',async({page})=>{
+  await page.setViewportSize({width:375,height:667})
+  await page.goto('/');await nav(page,'食品').click()
+  await expect(page.getByRole('button',{name:'新規作成',exact:true})).toHaveCount(0)
+  const fab=page.getByRole('button',{name:'食品を新規作成',exact:true})
+  const first=await fab.boundingBox(),menu=await page.getByRole('navigation').boundingBox()
+  expect(first!.y+first!.height).toBeLessThan(menu!.y)
+  expect(first!.height).toBeGreaterThanOrEqual(56)
+  for(let i=1;i<=8;i++) {
+    await fab.click()
+    await page.getByRole('textbox',{name:'食品名',exact:true}).fill('検証'+i)
+    await page.getByRole('textbox',{name:'単位',exact:true}).fill('1個')
+    for(const name of ['カロリー（kcal）','タンパク質（g）','脂質（g）','炭水化物（g）'])await page.getByRole('spinbutton',{name,exact:true}).fill('1')
+    await page.getByRole('button',{name:'保存する',exact:true}).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  }
+  await page.evaluate(()=>window.scrollTo(0,document.body.scrollHeight))
+  expect((await fab.boundingBox())!.y).toBe(first!.y)
+  expect((await page.locator('.compact-manage-row').last().boundingBox())!.y+(await page.locator('.compact-manage-row').last().boundingBox())!.height).toBeLessThan((await fab.boundingBox())!.y)
+  await page.getByRole('main').getByRole('button',{name:'セット',exact:true}).click()
+  await page.getByRole('button',{name:'食品セットを新規作成',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'食品セットを作成',exact:true})).toBeVisible()
+  await page.getByRole('textbox',{name:'セット名',exact:true}).fill('検証セット')
+  await page.getByRole('combobox',{name:'追加する食品',exact:true}).selectOption({label:'検証1'})
+  await page.getByRole('button',{name:'追加',exact:true}).click()
+  await page.getByRole('button',{name:'保存する',exact:true}).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('button',{name:'検証セット（タップで編集・長押しで並び替え）',exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'アーカイブ',exact:true}).click()
+  await expect(page.locator('.create-fab')).toHaveCount(0)
+})
+
+test('all settings details share guarded edge swipe and native back navigation',async({page})=>{
+  await page.goto('/');await nav(page,'設定').click()
+  for(const [name,title] of [['アプリアイコン','アプリアイコン'],['筋トレ日・休養日の目標','目標設定'],['バックアップ・復元','バックアップ・復元'],['履歴','履歴']]) {
+    await page.getByRole('button',{name,exact:true}).click()
+    await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible()
+    await swipe(page,12,100);await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible()
+    await swipe(page,120,0,60);await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible()
+    await swipe(page,50,0);await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible()
+    await swipe(page);await swipe(page)
+    await expect(page.getByRole('heading',{name:'設定',exact:true})).toBeVisible()
+  }
+  await page.getByRole('button',{name:'バックアップ・復元',exact:true}).click()
+  await page.goBack()
+  await expect(page.getByRole('heading',{name:'設定',exact:true})).toBeVisible()
+  await page.goForward()
+  await expect(page.getByRole('heading',{name:'バックアップ・復元',exact:true})).toBeVisible()
+})
+
+test('unsaved goals and icon drafts survive swipes and browser back',async({page})=>{
+  await page.goto('/');await nav(page,'設定').click()
+  await page.getByRole('button',{name:'筋トレ日・休養日の目標',exact:true}).click()
+  const protein=page.getByRole('spinbutton',{name:'タンパク質（g）',exact:true}).first()
+  await protein.fill('151')
+  await swipe(page)
+  await expect(protein).toHaveValue('151')
+  await page.getByRole('heading',{name:'目標設定',exact:true}).click()
+  await swipe(page)
+  await expect(page.getByRole('heading',{name:'目標設定',exact:true})).toBeVisible()
+  await page.goBack()
+  await expect.poll(()=>page.evaluate(()=>window.history.state?.mydietView)).toBe('goals')
+  await expect(protein).toHaveValue('151')
+  await page.getByRole('button',{name:'目標を保存',exact:true}).click()
+  await expect(page.getByRole('button',{name:'目標を保存',exact:true})).toBeEnabled()
+  await page.waitForTimeout(300)
+  await swipe(page);await expect(page.getByRole('heading',{name:'設定',exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'アプリアイコン',exact:true}).click()
+  await page.getByRole('button',{name:'文字・数字',exact:true}).click()
+  const text=page.getByLabel('文字・数字（1〜5文字）')
+  await text.fill('未保存')
+  await page.getByRole('heading',{name:'アプリアイコン',exact:true}).click()
+  await swipe(page)
+  await expect(text).toHaveValue('未保存')
+  await page.goBack()
+  await expect.poll(()=>page.evaluate(()=>window.history.state?.mydietView)).toBe('icon')
+  await expect(text).toHaveValue('未保存')
+  const saving=page.waitForEvent('download')
+  await page.getByRole('button',{name:'PNGを保存',exact:true}).click();await saving
+  await page.waitForTimeout(300)
+  await swipe(page);await expect(page.getByRole('heading',{name:'設定',exact:true})).toBeVisible()
+})

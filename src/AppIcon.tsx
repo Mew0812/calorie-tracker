@@ -3,7 +3,7 @@ import { drawIconText, imagePlacement, limitIconText, supportsIconText } from '.
 
 type Mode='文字・数字'|'写真・画像'
 const backgroundDefault='#2463eb'
-export default function AppIcon() {
+export default function AppIcon({onDirty}:{onDirty?:(dirty:boolean)=>void}) {
   const [mode,setMode]=useState<Mode>()
   const [text,setText]=useState('食')
   const [background,setBackground]=useState(backgroundDefault)
@@ -14,9 +14,13 @@ export default function AppIcon() {
   const [size,setSize]=useState(1024)
   const [error,setError]=useState('')
   const [renderReady,setRenderReady]=useState(false)
+  const [saved,setSaved]=useState<string>()
   const canvas=useRef<HTMLCanvasElement>(null)
   const value=supportsIconText?limitIconText(text.trim()):''
   const showCanvas=mode==='文字・数字'||mode==='写真・画像'&&!!photo
+  const signature=JSON.stringify({mode,value,background,foreground,file:file&&[file.name,file.size,file.lastModified],zoom,x,y,size})
+  const dirty=!!mode&&(mode==='文字・数字'?!!value:!!file)&&signature!==saved
+  useEffect(()=>{onDirty?.(dirty);return ()=>onDirty?.(false)},[onDirty,dirty])
   useEffect(()=>{
     if(!file)return
     const url=URL.createObjectURL(file),image=new Image()
@@ -53,7 +57,7 @@ export default function AppIcon() {
     try {
       setError('')
       const link=document.createElement('a');link.href=png();link.download=`mydiet-icon-${size}.png`
-      document.body.append(link);link.click();link.remove()
+      document.body.append(link);link.click();link.remove();setSaved(signature)
     }catch{setError('PNGを保存できませんでした。もう一度お試しください。')}
   }
   async function share() {
@@ -64,6 +68,7 @@ export default function AppIcon() {
       const files=[new File([bytes],`mydiet-icon-${size}.png`,{type:'image/png'})]
       if(!navigator.canShare?.({files})){download();return}
       await navigator.share({files})
+      setSaved(signature)
     }catch(cause){if(!(cause instanceof DOMException&&cause.name==='AbortError'))setError('共有できませんでした。「PNGを保存」をお試しください。')}
   }
   return <section className="card detail icon-editor" aria-label="アイコン作成">

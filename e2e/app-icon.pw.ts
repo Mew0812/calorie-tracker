@@ -7,7 +7,7 @@ import { resolve,sep,extname } from 'node:path'
 test('text, Unicode, photos, opaque PNGs and persisted food records',async({page})=>{
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button',{name:'食品',exact:true}).click()
-  await page.getByRole('button',{name:'新規作成',exact:true}).click()
+  await page.getByRole('button',{name:'食品を新規作成',exact:true}).click()
   await page.getByRole('textbox',{name:'食品名',exact:true}).fill('検証用の卵')
   await page.getByRole('textbox',{name:'単位',exact:true}).fill('1個')
   for(const [label,value] of [['カロリー（kcal）','75'],['タンパク質（g）','6'],['脂質（g）','5'],['炭水化物（g）','1']])await page.getByRole('spinbutton',{name:label,exact:true}).fill(value)
