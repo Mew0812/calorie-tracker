@@ -49,6 +49,8 @@ test('all settings details share guarded edge swipe and native back navigation',
   for(const [name,title] of [['アプリアイコン','アプリアイコン'],['筋トレ日・休養日の目標','目標設定'],['バックアップ・復元','バックアップ・復元'],['履歴','履歴']]) {
     await page.getByRole('button',{name,exact:true}).click()
     await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible()
+    await expect(page.getByRole('button',{name:'設定に戻る',exact:true})).toHaveCount(0)
+    expect(await page.getByRole('heading',{name:title,exact:true}).evaluate(element=>element.nextElementSibling?.tagName)).toMatch(/^(SECTION|FORM)$/)
     await swipe(page,12,100);await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible()
     await swipe(page,120,0,60);await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible()
     await swipe(page,50,0);await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible()
